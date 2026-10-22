@@ -1,0 +1,26 @@
+<svg width="1200" height="800" viewBox="0 0 1200 800" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect width="1200" height="800" fill="#020617"/>
+  <rect x="60" y="60" width="1080" height="680" rx="32" fill="url(#paint0_linear_1_2)" stroke="#A78BFA" stroke-width="3"/>
+  <rect x="150" y="150" width="300" height="500" rx="24" fill="#0F172A" stroke="#C084FC" stroke-opacity="0.6"/>
+  <rect x="200" y="220" width="200" height="110" rx="18" fill="#111827" stroke="#22D3EE"/>
+  <path d="M235 285H365" stroke="#67E8F9" stroke-width="12" stroke-linecap="round"/>
+  <circle cx="260" cy="285" r="18" fill="#22D3EE"/>
+  <circle cx="305" cy="285" r="18" fill="#A78BFA"/>
+  <rect x="200" y="390" width="200" height="110" rx="18" fill="#111827" stroke="#34D399"/>
+  <path d="M245 455L280 420L312 447L356 405" stroke="#34D399" stroke-width="10" stroke-linecap="round" stroke-linejoin="round"/>
+  <rect x="540" y="180" width="440" height="150" rx="18" fill="#111827" stroke="#22D3EE" stroke-opacity="0.8"/>
+  <rect x="570" y="220" width="140" height="26" rx="13" fill="#22D3EE" fill-opacity="0.9"/>
+  <rect x="735" y="220" width="180" height="26" rx="13" fill="#E2E8F0" fill-opacity="0.7"/>
+  <rect x="540" y="390" width="440" height="220" rx="18" fill="#111827" stroke="#A78BFA" stroke-opacity="0.8"/>
+  <path d="M590 560C630 510 685 480 760 460C804 448 845 450 900 470" stroke="#C084FC" stroke-width="10" stroke-linecap="round"/>
+  <circle cx="590" cy="560" r="18" fill="#C084FC"/>
+  <circle cx="760" cy="460" r="18" fill="#22D3EE"/>
+  <circle cx="900" cy="470" r="18" fill="#C084FC"/>
+  <text x="610" y="635" fill="#E2E8F0" font-family="Arial, sans-serif" font-size="28" font-weight="700">Embedded Control</text>
+  <defs>
+    <linearGradient id="paint0_linear_1_2" x1="0" y1="0" x2="1200" y2="800" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#020617"/>
+      <stop offset="1" stop-color="#111827"/>
+    </linearGradient>
+  </defs>
+</svg>
