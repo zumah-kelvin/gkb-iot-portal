@@ -6,7 +6,7 @@ import {
   User, Lock, LogOut, PlusCircle, CheckCircle, AlertTriangle, Unlink,
   Send, Server, Terminal, Activity, Layers, ArrowRight, CheckSquare, Square,
   Sun, Moon, Zap, Wifi, Radio, Gauge, BatteryCharging, Lightbulb, Pencil, Save, X,
-  Volume2, VolumeX, Siren, ShieldAlert, ShieldCheck, Eye, EyeOff, Clock3
+  Volume2, VolumeX, PhoneCall, Copy, Download, Code, Check, Siren, ShieldAlert, ShieldCheck, Eye, EyeOff, Clock3
 } from 'lucide-react';
 
 type ServiceType = 'student-projects' | 'retail-gadgets';
@@ -128,7 +128,7 @@ function InventoryHighlights({ text }: { text: string }) {
 }
 
 const defaultDevices: Device[] = [
-  { id: 1, name: 'Smart Home Security System v1', key: 'GKB-SEC-9988', status: 'Online', lastAlert: 'Intrusion detected at Living Room (14:22 PM)', project: 'smart-security-system' },
+  { id: 1, name: 'Smart Home Security System v1', key: 'GKB-SEC-9988', legacyKeys: ['GKB-SEC-0001', 'GKB-SCE-0001', 'GKB-SEC-0002'], status: 'Online', lastAlert: 'Intrusion detected at Living Room (14:22 PM)', project: 'smart-security-system' },
   { id: 2, name: 'Smart Water Tank Monitor', key: 'GKB-SWP-0001', legacyKeys: ['GKB-WTR-4412'], status: 'Online', lastAlert: 'Water level stable at 68%', project: 'water-tank-monitor' },
   { id: 3, name: 'Industrial Fuel Tank Monitor', key: 'GKB-IUFT-0001', status: 'Online', lastAlert: 'Fuel level stable at 72%', project: 'fuel-tank-monitor' },
   { id: 4, name: 'GKB Smart Prepaid Energy Meter', key: 'GKB-SPEM-0001', status: 'Online', lastAlert: 'Meter secure · balance GHS 24.50', project: 'prepaid-energy-meter' },
@@ -2142,6 +2142,146 @@ function PrepaidEnergyMeterDashboard({ mode }: { mode: 'test' | 'service' }) {
       </p>
     </section>
   );
+}
+
+function generateArduinoCode(secretKey: string, emergencyNumber: string): string {
+  return `/*
+ * =========================================================================
+ * GKB TECHNOLOGIES — SMART HOME SECURITY & INTRUSION SYSTEM
+ * Microcontroller: Arduino Uno / Nano / Mini / ESP32
+ * Cellular Engine: SIM800L / SIM900 GSM/GPRS
+ * Sensors: HC-SR501 PIR Infrared Motion Detector (Pin D2)
+ * Actuators: Active Piezo Buzzer (Pin D3), High-Intensity LED (Pin D13)
+ * Emergency Contact: ${emergencyNumber}
+ * Secret Device Key: ${secretKey}
+ * =========================================================================
+ */
+
+#include <SoftwareSerial.h>
+
+// ================= CONFIGURATION & SECRET KEYS =================
+// You can customize your secret device pairing key anytime below:
+#define GKB_DEVICE_SECRET_KEY  "${secretKey}"
+
+// Destination phone number that will receive automated voice calls & SMS:
+#define EMERGENCY_PHONE_NUMBER "${emergencyNumber}"
+
+// Pin Definitions
+#define PIR_PIN     2   // PIR Motion Sensor Digital Output
+#define BUZZER_PIN  3   // Active Buzzer Positive (+)
+#define ALARM_LED   13  // Red Alarm Strobe LED
+#define GSM_RX_PIN  8   // Arduino RX (Connects to SIM800L TXD)
+#define GSM_TX_PIN  9   // Arduino TX (Connects to SIM800L RXD via 1k/2k divider)
+
+SoftwareSerial gsmSerial(GSM_RX_PIN, GSM_TX_PIN);
+
+unsigned long lastCallTime = 0;
+const unsigned long CALL_COOLDOWN = 30000; // 30-second cooldown between call cycles
+bool systemArmed = true;
+
+void setup() {
+  Serial.begin(9600);
+  gsmSerial.begin(9600);
+
+  pinMode(PIR_PIN, INPUT);
+  pinMode(BUZZER_PIN, OUTPUT);
+  pinMode(ALARM_LED, OUTPUT);
+
+  digitalWrite(BUZZER_PIN, LOW);
+  digitalWrite(ALARM_LED, LOW);
+
+  Serial.println(F("============================================="));
+  Serial.println(F("GKB TECHNOLOGIES — SECURITY SYSTEM BOOT"));
+  Serial.print(F("Device Secret Key: "));
+  Serial.println(GKB_DEVICE_SECRET_KEY);
+  Serial.print(F("Emergency Dial Target: "));
+  Serial.println(EMERGENCY_PHONE_NUMBER);
+  Serial.println(F("============================================="));
+
+  // Initialize GSM modem
+  delay(3000); // Wait for SIM800L network registration
+  gsmSerial.println("AT");
+  delay(1000);
+  gsmSerial.println("AT+CMGF=1"); // Set SMS text mode
+  delay(1000);
+
+  Serial.println(F("SIM800L GSM Ready. PIR Motion Sensor Armed!"));
+}
+
+void loop() {
+  if (!systemArmed) return;
+
+  // Read PIR sensor digital state (HIGH when motion is detected)
+  int motionDetected = digitalRead(PIR_PIN);
+
+  if (motionDetected == HIGH) {
+    unsigned long currentMillis = millis();
+
+    // Check cooldown to avoid continuous call spam
+    if (currentMillis - lastCallTime > CALL_COOLDOWN || lastCallTime == 0) {
+      lastCallTime = currentMillis;
+
+      Serial.println(F("🚨 MOTION DETECTED! Tripping Alarm & Calling Recipient..."));
+
+      // 1. Activate local audio buzzer & visual LED strobe
+      triggerLocalAlarm();
+
+      // 2. Place automated GSM voice call to the user's phone
+      dialEmergencyNumber(EMERGENCY_PHONE_NUMBER);
+
+      // 3. Send automated intrusion SMS alert
+      sendIntrusionSMS(EMERGENCY_PHONE_NUMBER);
+    }
+  }
+}
+
+void triggerLocalAlarm() {
+  // Rapid 10Hz buzzer pulsing and LED strobe
+  for (int i = 0; i < 8; i++) {
+    digitalWrite(BUZZER_PIN, HIGH);
+    digitalWrite(ALARM_LED, HIGH);
+    delay(200);
+    digitalWrite(BUZZER_PIN, LOW);
+    digitalWrite(ALARM_LED, LOW);
+    delay(100);
+  }
+}
+
+void dialEmergencyNumber(const char* number) {
+  Serial.print(F("📞 Calling: "));
+  Serial.println(number);
+
+  // Send ATD command to SIM800L (semicolon is required for voice call)
+  gsmSerial.print("ATD");
+  gsmSerial.print(number);
+  gsmSerial.println(";");
+
+  // Let phone ring for 25 seconds
+  delay(25000);
+
+  // Send ATH to hang up call
+  gsmSerial.println("ATH");
+  Serial.println(F("Emergency voice call sequence complete."));
+}
+
+void sendIntrusionSMS(const char* number) {
+  Serial.print(F("💬 Sending SMS alert to: "));
+  Serial.println(number);
+
+  gsmSerial.print("AT+CMGS=\"");
+  gsmSerial.print(number);
+  gsmSerial.println("\"");
+  delay(1000);
+
+  gsmSerial.print("GKB SECURITY ALERT: Motion detected at your premises! Key: ");
+  gsmSerial.print(GKB_DEVICE_SECRET_KEY);
+  gsmSerial.print(". Check your live GKB IoT Portal now.");
+  delay(200);
+
+  gsmSerial.write(26); // ASCII code 26 (Ctrl+Z) to send message
+  delay(3000);
+  Serial.println(F("SMS alert dispatched successfully."));
+}`;
 }
 
 function SmartHomeSecurityDashboard({ mode, device }: { mode: 'test' | 'service'; device?: Device }) {
