@@ -128,7 +128,7 @@ function InventoryHighlights({ text }: { text: string }) {
 }
 
 const defaultDevices: Device[] = [
-  { id: 1, name: 'Smart Home Security System v1', key: 'GKB-SEC-9988', legacyKeys: ['GKB-SEC-0001', 'GKB-SCE-0001', 'GKB-SEC-0002'], status: 'Online', lastAlert: 'Intrusion detected at Living Room (14:22 PM)', project: 'smart-security-system' },
+  { id: 1, name: 'Smart Home Security System v1', key: 'GKB-SEC-0001', legacyKeys: ['GKB-SEC-9988', 'GKB-SCE-0001', 'GKB-SEC-0002'], status: 'Online', lastAlert: 'Armed · PIR motion active · Recipient: +233 256905290', project: 'smart-security-system' },
   { id: 2, name: 'Smart Water Tank Monitor', key: 'GKB-SWP-0001', legacyKeys: ['GKB-WTR-4412'], status: 'Online', lastAlert: 'Water level stable at 68%', project: 'water-tank-monitor' },
   { id: 3, name: 'Industrial Fuel Tank Monitor', key: 'GKB-IUFT-0001', status: 'Online', lastAlert: 'Fuel level stable at 72%', project: 'fuel-tank-monitor' },
   { id: 4, name: 'GKB Smart Prepaid Energy Meter', key: 'GKB-SPEM-0001', status: 'Online', lastAlert: 'Meter secure · balance GHS 24.50', project: 'prepaid-energy-meter' },
@@ -2144,128 +2144,168 @@ function PrepaidEnergyMeterDashboard({ mode }: { mode: 'test' | 'service' }) {
   );
 }
 
-function generateArduinoCode(secretKey: string, emergencyNumber: string): string {
+function generateArduinoCode(secretKey: string = 'GKB-SEC-0001', emergencyNumber: string = '+233256905290'): string {
   return `/*
  * =========================================================================
- * GKB TECHNOLOGIES — SMART HOME SECURITY & INTRUSION SYSTEM
- * Microcontroller: Arduino Uno / Nano / Mini / ESP32
- * Cellular Engine: SIM800L / SIM900 GSM/GPRS
- * Sensors: HC-SR501 PIR Infrared Motion Detector (Pin D2)
- * Actuators: Active Piezo Buzzer (Pin D3), High-Intensity LED (Pin D13)
- * Emergency Contact: ${emergencyNumber}
- * Secret Device Key: ${secretKey}
+ * GKB TECHNOLOGIES — ESP32 IOT SMART SECURITY & GSM INTRUSION DIALER
+ * Hardware: ESP32 NodeMCU / DevKit (WROOM-32)
+ * Cellular Engine: SIM800L / SIM900 GSM Modem (Hardware UART2)
+ * Sensors: HC-SR501 PIR Infrared Motion Detector
+ * Actuators: Active Piezo Buzzer & High-Intensity Alarm Strobe LED
+ * Destination Emergency Number: ${emergencyNumber}
+ * Provisioned Secret Device Key: ${secretKey}
+ * Live IoT Cloud: https://gkb-iot.netlify.app/
  * =========================================================================
  */
 
-#include <SoftwareSerial.h>
+#include <WiFi.h>
+#include <HTTPClient.h>
 
-// ================= CONFIGURATION & SECRET KEYS =================
-// You can customize your secret device pairing key anytime below:
+// ================= DEVICE SECRET KEY & EMERGENCY TARGET =================
 #define GKB_DEVICE_SECRET_KEY  "${secretKey}"
-
-// Destination phone number that will receive automated voice calls & SMS:
 #define EMERGENCY_PHONE_NUMBER "${emergencyNumber}"
 
-// Pin Definitions
-#define PIR_PIN     2   // PIR Motion Sensor Digital Output
-#define BUZZER_PIN  3   // Active Buzzer Positive (+)
-#define ALARM_LED   13  // Red Alarm Strobe LED
-#define GSM_RX_PIN  8   // Arduino RX (Connects to SIM800L TXD)
-#define GSM_TX_PIN  9   // Arduino TX (Connects to SIM800L RXD via 1k/2k divider)
+// Optional: Wi-Fi Credentials for Live Telemetry Sync
+const char* WIFI_SSID     = "YOUR_WIFI_SSID";
+const char* WIFI_PASSWORD = "YOUR_WIFI_PASSWORD";
 
-SoftwareSerial gsmSerial(GSM_RX_PIN, GSM_TX_PIN);
+// Supabase Live Telemetry Endpoint
+const char* SUPABASE_URL  = "https://ditnksmvcacnzdguqcgz.supabase.co/rest/v1/gkb_user_devices?device_key=eq.${secretKey}";
+const char* SUPABASE_ANON = "sb_publishable_33KQl1SmvaBaqNzxWJiyzw_HuLMgWAl";
+
+// ================= ESP32 PIN CONFIGURATION =================
+#define PIR_PIN         13  // PIR Sensor OUT (GPIO 13)
+#define BUZZER_PIN      14  // Active Piezo Buzzer (+) (GPIO 14)
+#define ALARM_LED_PIN   2   // ESP32 Onboard LED & Alarm Strobe (GPIO 2)
+#define GSM_RX_PIN      16  // ESP32 RX2 (Connects to SIM800L TXD)
+#define GSM_TX_PIN      17  // ESP32 TX2 (Connects to SIM800L RXD)
+
+// Use ESP32 Hardware UART2 for 100% reliable baud rates with SIM800L
+HardwareSerial gsmSerial(2);
 
 unsigned long lastCallTime = 0;
-const unsigned long CALL_COOLDOWN = 30000; // 30-second cooldown between call cycles
+const unsigned long CALL_COOLDOWN = 30000; // 30-second cooldown between call bursts
 bool systemArmed = true;
 
 void setup() {
-  Serial.begin(9600);
-  gsmSerial.begin(9600);
+  Serial.begin(115200);
+  delay(1000);
+
+  // Initialize Hardware UART2 on GPIO 16 (RX) & GPIO 17 (TX) at 9600 baud
+  gsmSerial.begin(9600, SERIAL_8N1, GSM_RX_PIN, GSM_TX_PIN);
 
   pinMode(PIR_PIN, INPUT);
   pinMode(BUZZER_PIN, OUTPUT);
-  pinMode(ALARM_LED, OUTPUT);
+  pinMode(ALARM_LED_PIN, OUTPUT);
 
   digitalWrite(BUZZER_PIN, LOW);
-  digitalWrite(ALARM_LED, LOW);
+  digitalWrite(ALARM_LED_PIN, LOW);
 
-  Serial.println(F("============================================="));
-  Serial.println(F("GKB TECHNOLOGIES — SECURITY SYSTEM BOOT"));
-  Serial.print(F("Device Secret Key: "));
-  Serial.println(GKB_DEVICE_SECRET_KEY);
-  Serial.print(F("Emergency Dial Target: "));
-  Serial.println(EMERGENCY_PHONE_NUMBER);
-  Serial.println(F("============================================="));
+  Serial.println("\\n=======================================================");
+  Serial.println("🛡️  GKB TECHNOLOGIES — ESP32 SECURITY SYSTEM INITIALIZED");
+  Serial.print("🔑 Secret Hardware Key : "); Serial.println(GKB_DEVICE_SECRET_KEY);
+  Serial.print("📞 Emergency Recipient : "); Serial.println(EMERGENCY_PHONE_NUMBER);
+  Serial.println("=======================================================");
 
-  // Initialize GSM modem
-  delay(3000); // Wait for SIM800L network registration
+  // Optional: Connect to Wi-Fi for Live Cloud Telemetry
+  if (String(WIFI_SSID) != "YOUR_WIFI_SSID") {
+    Serial.print("Connecting to Wi-Fi [");
+    Serial.print(WIFI_SSID);
+    Serial.print("]...");
+    WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+    int attempts = 0;
+    while (WiFi.status() != WL_CONNECTED && attempts < 15) {
+      delay(500);
+      Serial.print(".");
+      attempts++;
+    }
+    if (WiFi.status() == WL_CONNECTED) {
+      Serial.println(" Connected! IP: " + WiFi.localIP().toString());
+    } else {
+      Serial.println(" Wi-Fi skipped (offline cellular mode active).");
+    }
+  }
+
+  // Initialize SIM800L GSM module
+  Serial.println("Configuring SIM800L Cellular Modem...");
+  delay(3000); // Allow SIM800L to register on cell network
   gsmSerial.println("AT");
   delay(1000);
-  gsmSerial.println("AT+CMGF=1"); // Set SMS text mode
+  gsmSerial.println("AT+CMGF=1"); // Set SMS to text mode
+  delay(1000);
+  gsmSerial.println("AT+CLIP=1"); // Enable caller ID
   delay(1000);
 
-  Serial.println(F("SIM800L GSM Ready. PIR Motion Sensor Armed!"));
+  Serial.println("✅ SIM800L Ready & Registered. PIR Motion Sensor Armed!\\n");
 }
 
 void loop() {
   if (!systemArmed) return;
 
-  // Read PIR sensor digital state (HIGH when motion is detected)
-  int motionDetected = digitalRead(PIR_PIN);
+  // Read PIR sensor digital state (HIGH when motion detected)
+  int motionState = digitalRead(PIR_PIN);
 
-  if (motionDetected == HIGH) {
+  if (motionState == HIGH) {
     unsigned long currentMillis = millis();
 
-    // Check cooldown to avoid continuous call spam
+    // Prevent call looping within cooldown window
     if (currentMillis - lastCallTime > CALL_COOLDOWN || lastCallTime == 0) {
       lastCallTime = currentMillis;
 
-      Serial.println(F("🚨 MOTION DETECTED! Tripping Alarm & Calling Recipient..."));
+      Serial.println("\\n🚨 [ALERT] PIR MOTION DETECTED IN PROTECTED ZONE!");
+      Serial.println("⚡ Tripping alarm, placing voice call to " + String(EMERGENCY_PHONE_NUMBER) + "...");
 
-      // 1. Activate local audio buzzer & visual LED strobe
+      // 1. Trigger local audio buzzer and visual strobe
       triggerLocalAlarm();
 
-      // 2. Place automated GSM voice call to the user's phone
+      // 2. Make emergency cellular voice call via SIM800L
       dialEmergencyNumber(EMERGENCY_PHONE_NUMBER);
 
-      // 3. Send automated intrusion SMS alert
+      // 3. Send automated SMS intrusion alert
       sendIntrusionSMS(EMERGENCY_PHONE_NUMBER);
+
+      // 4. Send Cloud Telemetry to GKB Portal via Supabase (if Wi-Fi connected)
+      sendCloudTelemetry();
     }
+  }
+
+  // Check for any responses from SIM800L modem
+  while (gsmSerial.available()) {
+    Serial.write(gsmSerial.read());
   }
 }
 
 void triggerLocalAlarm() {
-  // Rapid 10Hz buzzer pulsing and LED strobe
+  Serial.println("🔊 Sounding Piezo Buzzer & Pulsing LED Strobe...");
   for (int i = 0; i < 8; i++) {
     digitalWrite(BUZZER_PIN, HIGH);
-    digitalWrite(ALARM_LED, HIGH);
+    digitalWrite(ALARM_LED_PIN, HIGH);
     delay(200);
     digitalWrite(BUZZER_PIN, LOW);
-    digitalWrite(ALARM_LED, LOW);
+    digitalWrite(ALARM_LED_PIN, LOW);
     delay(100);
   }
 }
 
 void dialEmergencyNumber(const char* number) {
-  Serial.print(F("📞 Calling: "));
+  Serial.print("📞 Calling Emergency Target: ");
   Serial.println(number);
 
-  // Send ATD command to SIM800L (semicolon is required for voice call)
+  // Send ATD command to SIM800L (the semicolon ';' specifies a voice call)
   gsmSerial.print("ATD");
   gsmSerial.print(number);
   gsmSerial.println(";");
 
-  // Let phone ring for 25 seconds
+  // Let call ring for 25 seconds
   delay(25000);
 
-  // Send ATH to hang up call
+  // Hang up the call
   gsmSerial.println("ATH");
-  Serial.println(F("Emergency voice call sequence complete."));
+  Serial.println("Voice call sequence finished.");
 }
 
 void sendIntrusionSMS(const char* number) {
-  Serial.print(F("💬 Sending SMS alert to: "));
+  Serial.print("💬 Dispatching SMS alert to: ");
   Serial.println(number);
 
   gsmSerial.print("AT+CMGS=\"");
@@ -2273,14 +2313,31 @@ void sendIntrusionSMS(const char* number) {
   gsmSerial.println("\"");
   delay(1000);
 
-  gsmSerial.print("GKB SECURITY ALERT: Motion detected at your premises! Key: ");
+  gsmSerial.print("🚨 GKB SECURITY ALERT: Intrusion detected in Zone 1! Secret Key: ");
   gsmSerial.print(GKB_DEVICE_SECRET_KEY);
-  gsmSerial.print(". Check your live GKB IoT Portal now.");
+  gsmSerial.print(". Live Dashboard: https://gkb-iot.netlify.app/");
   delay(200);
 
-  gsmSerial.write(26); // ASCII code 26 (Ctrl+Z) to send message
+  // Send ASCII code 26 (Ctrl+Z) to finalize and send SMS
+  gsmSerial.write(26);
   delay(3000);
-  Serial.println(F("SMS alert dispatched successfully."));
+  Serial.println("SMS alert command dispatched.");
+}
+
+void sendCloudTelemetry() {
+  if (WiFi.status() == WL_CONNECTED) {
+    HTTPClient http;
+    http.begin(SUPABASE_URL);
+    http.addHeader("Content-Type", "application/json");
+    http.addHeader("apikey", SUPABASE_ANON);
+    http.addHeader("Authorization", String("Bearer ") + SUPABASE_ANON);
+    http.addHeader("Prefer", "return=minimal");
+
+    String jsonPayload = "{\\"status\\":\\"Alarm Active\\",\\"last_alert\\":\\"Intrusion detected at Living Room (PIR trip) - Dialed " + String(EMERGENCY_PHONE_NUMBER) + "\\"}";
+    int httpResponseCode = http.PATCH(jsonPayload);
+    Serial.println("Cloud Telemetry Response: " + String(httpResponseCode));
+    http.end();
+  }
 }`;
 }
 
@@ -3001,10 +3058,169 @@ function SmartHomeSecurityDashboard({ mode, device }: { mode: 'test' | 'service'
         </div>
       </div>
 
+      {/* ESP32 Firmware & Hardware Integration Card */}
+      <div className="rounded-2xl border border-cyan-500/40 bg-gradient-to-r from-slate-900 via-slate-900/90 to-slate-950 p-6 backdrop-blur-xl shadow-xl space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div className="space-y-1">
+            <span className="inline-flex items-center gap-1.5 rounded-full border border-cyan-400/40 bg-cyan-400/10 px-3 py-1 text-xs font-bold uppercase tracking-wider text-cyan-300">
+              <Cpu className="h-3.5 w-3.5" /> ESP32 Hardware Integration
+            </span>
+            <h3 className="text-xl font-bold text-white">ESP32 + SIM800L Intrusion Dialer Firmware</h3>
+            <p className="text-xs text-slate-300 max-w-xl">
+              Production C++ sketch configured for secret key <strong className="text-cyan-300 font-mono">{activeKey}</strong>. Automatically triggers piezo buzzer and dials <strong className="text-yellow-300 font-mono">{emergencyPhone}</strong> when motion is detected.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => setShowFirmwareModal(true)}
+            className="inline-flex items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-cyan-500 to-purple-600 px-5 py-3 text-xs font-bold uppercase tracking-wider text-black shadow-lg shadow-cyan-500/25 hover:scale-105 transition-all cursor-pointer whitespace-nowrap"
+          >
+            <Code className="h-4 w-4" />
+            View & Download ESP32 Code
+          </button>
+        </div>
+      </div>
+
       {/* Safety Notice */}
       <p role="status" className="rounded-xl border border-amber-500/20 bg-amber-500/5 px-4 py-3 text-xs leading-relaxed text-amber-200">
         Smart Home Security preview: PIR sensor telemetry, zone breach triggers, blinking red background strobe, and buzzing sound are active in this demonstration. Physical sirens, CCTV cameras, and SMS relays operate in hardware firmware upon installation.
       </p>
+
+      {/* Firmware Modal */}
+      {showFirmwareModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-md p-4 overflow-y-auto">
+          <div className="w-full max-w-4xl rounded-2xl border border-cyan-500/40 bg-slate-900 p-6 sm:p-8 shadow-[0_0_60px_rgba(6,182,212,0.3)] space-y-5 animate-scaleUp max-h-[90vh] flex flex-col">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-4">
+              <div className="space-y-1">
+                <span className="text-xs font-bold uppercase tracking-wider text-cyan-400">ESP32 Arduino Firmware</span>
+                <h3 className="text-xl font-black text-white">SIM800L + PIR Motion Emergency Dialer</h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowFirmwareModal(false)}
+                className="text-slate-400 hover:text-white p-2 rounded-lg bg-slate-800/60 cursor-pointer"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            {/* Quick Settings Bar */}
+            <div className="grid gap-4 sm:grid-cols-2 bg-slate-950 p-4 rounded-xl border border-slate-800 text-xs">
+              <label className="text-slate-400">
+                Secret Device Key:
+                <input
+                  type="text"
+                  value={activeKey}
+                  readOnly
+                  className="mt-1 w-full rounded-lg border border-slate-800 bg-slate-900 px-3 py-2 font-mono font-bold text-cyan-300"
+                />
+              </label>
+              <label className="text-slate-400">
+                Target Emergency Phone Number:
+                <input
+                  type="text"
+                  value={emergencyPhone}
+                  onChange={e => setEmergencyPhone(e.target.value)}
+                  className="mt-1 w-full rounded-lg border border-slate-800 bg-slate-900 px-3 py-2 font-mono font-bold text-yellow-300 focus:border-cyan-400 focus:outline-none"
+                />
+              </label>
+            </div>
+
+            {/* Wiring Table */}
+            <div className="overflow-x-auto text-xs bg-slate-950/80 rounded-xl border border-slate-800 p-3">
+              <p className="font-bold text-slate-300 mb-2 uppercase text-[11px] tracking-wider text-cyan-400">⚡ Hardware Wiring Pinout (ESP32 DevKit):</p>
+              <table className="w-full text-left border-collapse">
+                <thead>
+                  <tr className="border-b border-slate-800 text-slate-400 text-[10px] uppercase">
+                    <th className="py-1.5 px-2">Component</th>
+                    <th className="py-1.5 px-2">Pin Label</th>
+                    <th className="py-1.5 px-2">ESP32 GPIO Pin</th>
+                    <th className="py-1.5 px-2">Notes</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-900 font-mono text-[11px] text-slate-300">
+                  <tr>
+                    <td className="py-1.5 px-2 text-white font-bold">PIR Sensor</td>
+                    <td className="py-1.5 px-2 text-cyan-300">OUT</td>
+                    <td className="py-1.5 px-2 text-yellow-300">GPIO 13</td>
+                    <td className="py-1.5 px-2 text-slate-400">VCC to 5V, GND to GND</td>
+                  </tr>
+                  <tr>
+                    <td className="py-1.5 px-2 text-white font-bold">SIM800L GSM</td>
+                    <td className="py-1.5 px-2 text-cyan-300">TXD</td>
+                    <td className="py-1.5 px-2 text-yellow-300">GPIO 16 (RX2)</td>
+                    <td className="py-1.5 px-2 text-slate-400">Connect to ESP32 Hardware UART2 RX</td>
+                  </tr>
+                  <tr>
+                    <td className="py-1.5 px-2 text-white font-bold">SIM800L GSM</td>
+                    <td className="py-1.5 px-2 text-cyan-300">RXD</td>
+                    <td className="py-1.5 px-2 text-yellow-300">GPIO 17 (TX2)</td>
+                    <td className="py-1.5 px-2 text-slate-400">Connect to ESP32 Hardware UART2 TX</td>
+                  </tr>
+                  <tr>
+                    <td className="py-1.5 px-2 text-white font-bold">Piezo Buzzer</td>
+                    <td className="py-1.5 px-2 text-cyan-300">Positive (+)</td>
+                    <td className="py-1.5 px-2 text-yellow-300">GPIO 14</td>
+                    <td className="py-1.5 px-2 text-slate-400">Negative (-) to GND</td>
+                  </tr>
+                  <tr>
+                    <td className="py-1.5 px-2 text-white font-bold">Alarm LED</td>
+                    <td className="py-1.5 px-2 text-cyan-300">Anode (+)</td>
+                    <td className="py-1.5 px-2 text-yellow-300">GPIO 2</td>
+                    <td className="py-1.5 px-2 text-slate-400">Onboard LED or external red LED</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+
+            {/* Code container */}
+            <div className="flex-1 overflow-y-auto bg-slate-950 p-4 rounded-xl border border-slate-800 font-mono text-xs text-cyan-300/90 whitespace-pre leading-relaxed select-all max-h-60">
+              {generateArduinoCode(activeKey, emergencyPhone)}
+            </div>
+
+            {/* Actions */}
+            <div className="flex flex-wrap items-center justify-between gap-3 pt-2 border-t border-slate-800">
+              <button
+                type="button"
+                onClick={() => {
+                  navigator.clipboard.writeText(generateArduinoCode(activeKey, emergencyPhone));
+                  setCopiedCode(true);
+                  setTimeout(() => setCopiedCode(false), 2500);
+                }}
+                className="inline-flex items-center gap-2 rounded-xl bg-cyan-500 px-5 py-2.5 text-xs font-bold uppercase tracking-wider text-black hover:bg-cyan-400 transition-colors cursor-pointer"
+              >
+                {copiedCode ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
+                {copiedCode ? 'Copied to Clipboard!' : 'Copy Code'}
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  const blob = new Blob([generateArduinoCode(activeKey, emergencyPhone)], { type: 'text/plain' });
+                  const url = URL.createObjectURL(blob);
+                  const a = document.createElement('a');
+                  a.href = url;
+                  a.download = `GKB_ESP32_Security_${activeKey}.ino`;
+                  a.click();
+                  URL.revokeObjectURL(url);
+                }}
+                className="inline-flex items-center gap-2 rounded-xl border border-purple-500/40 bg-purple-500/10 px-5 py-2.5 text-xs font-bold uppercase tracking-wider text-purple-300 hover:bg-purple-500/20 transition-colors cursor-pointer"
+              >
+                <Download className="h-4 w-4" />
+                Download .INO Sketch
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setShowFirmwareModal(false)}
+                className="text-xs text-slate-400 hover:text-white px-3 py-2 cursor-pointer"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </section>
   );
 }
