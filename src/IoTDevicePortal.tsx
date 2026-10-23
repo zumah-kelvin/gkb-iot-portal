@@ -3293,7 +3293,20 @@ export default function IoTDevicePortal() {
   const [linkBusy, setLinkBusy] = useState(false);
 
   // Complaints / Support state
+  const isAdmin = Boolean(user && (user.role === 'admin' || user.email?.toLowerCase() === 'zumkel023@gmail.com'));
   const [complaints, setComplaints] = useState<Complaint[]>([]);
+  const [complaintsLoading, setComplaintsLoading] = useState(false);
+  const [complaintFilter, setComplaintFilter] = useState<'all' | 'pending' | 'resolved'>('all');
+  
+  // Admin New Device Form
+  const [newDevName, setNewDevName] = useState('');
+  const [newDevKey, setNewDevKey] = useState('');
+  const [newDevProject, setNewDevProject] = useState<StudentProject>('smart-security-system');
+  const [newDevAlert, setNewDevAlert] = useState('');
+  const [newDevChannels, setNewDevChannels] = useState<'4' | '6' | '8'>('4');
+  const [deployMessage, setDeployMessage] = useState('');
+  const [deployError, setDeployError] = useState('');
+  const [deployBusy, setDeployBusy] = useState(false);
   const [newComplaintText, setNewComplaintText] = useState('');
   const [complaintError, setComplaintError] = useState('');
   const [complaintBusy, setComplaintBusy] = useState(false);
@@ -3503,6 +3516,150 @@ export default function IoTDevicePortal() {
     setActiveTab('devices');
   };
 
+  // Load complaints from Supabase
+  const loadComplaints = useCallback(async () => {
+    if (!relaySupabase) return;
+    setComplaintsLoading(true);
+    setComplaintError('');
+    try {
+      let query = relaySupabase
+        .from('gkb_complaints')
+        .select('id, user_id, client_email, complaint, solved, created_at')
+        .order('created_at', { ascending: false });
+
+      if (user && !isAdmin) {
+        query = query.eq('user_id', user.id);
+      }
+      const { data, error } = await query;
+      if (error) throw error;
+      setComplaints((data ?? []).map(item => ({
+        id: item.id,
+        clientId: item.user_id,
+        clientEmail: item.client_email,
+        text: item.complaint,
+        solved: Boolean(item.solved),
+        date: new Date(item.created_at).toLocaleDateString()
+      })));
+    } catch (err) {
+      console.error('Failed to load support tickets from Supabase', err);
+      setComplaintError(err instanceof Error ? err.message : 'Support tickets could not be loaded.');
+    } finally {
+      setComplaintsLoading(false);
+    }
+  }, [user, isAdmin]);
+
+  useEffect(() => {
+    void loadComplaints();
+  }, [loadComplaints]);
+
+  // Admin toggle complaint resolution
+  const toggleComplaintSolved = async (target: Complaint) => {
+    if (!relaySupabase || !isAdmin) return;
+    const nextSolved = !target.solved;
+    try {
+      const { error } = await relaySupabase
+        .from('gkb_complaints')
+        .update({ solved: nextSolved })
+        .eq('id', target.id);
+      if (error) throw error;
+      setComplaints(prev => prev.map(c => c.id === target.id ? { ...c, solved: nextSolved } : c));
+    } catch (err) {
+      console.error('Failed to update ticket status', err);
+      setComplaintError(err instanceof Error ? err.message : 'Failed to update ticket status.');
+    }
+  };
+
+  // Admin delete complaint
+  const handleDeleteComplaint = async (targetId: string) => {
+    if (!relaySupabase || !isAdmin) return;
+    try {
+      const { error } = await relaySupabase
+        .from('gkb_complaints')
+        .delete()
+        .eq('id', targetId);
+      if (error) throw error;
+      setComplaints(prev => prev.filter(c => c.id !== targetId));
+    } catch (err) {
+      console.error('Failed to delete ticket', err);
+      setComplaintError(err instanceof Error ? err.message : 'Failed to delete ticket.');
+    }
+  };
+
+  // Admin: Create and deploy new hardware system
+  const handleCreateDevice = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    setDeployError('');
+    setDeployMessage('');
+    if (!newDevName.trim() || !newDevKey.trim()) {
+      setDeployError('Please provide both a system name and a unique special key.');
+      return;
+    }
+    const formattedKey = newDevKey.trim().toUpperCase();
+    if (devices.some(d => d.key.toUpperCase() === formattedKey || d.legacyKeys?.map(k => k.toUpperCase()).includes(formattedKey))) {
+      setDeployError(`Special key "${formattedKey}" is already registered in the fleet catalogue.`);
+      return;
+    }
+
+    setDeployBusy(true);
+    const newDevice: Device = {
+      id: Date.now(),
+      name: newDevName.trim(),
+      key: formattedKey,
+      status: 'Online',
+      lastAlert: newDevAlert.trim() || 'System provisioned and active in fleet catalogue.',
+      project: newDevProject,
+      relayChannels: newDevProject === 'relay-test' ? (Number(newDevChannels) as 4 | 6 | 8) : undefined
+    };
+
+    const nextDevices = [newDevice, ...devices];
+    setDevices(nextDevices);
+
+    try {
+      window.localStorage.setItem('gkb-devices', JSON.stringify(nextDevices));
+      setDeployMessage(`✅ System "${newDevice.name}" [${newDevice.key}] deployed to live fleet catalogue!`);
+    } catch (err) {
+      console.error('Could not save to localStorage', err);
+      setDeployError('Device deployed for this session, but local browser cache was not saved.');
+    }
+
+    if (user && relaySupabase) {
+      try {
+        await relaySupabase
+          .from('gkb_user_devices')
+          .upsert({
+            user_id: user.id,
+            device_key: newDevice.key,
+            device_name: newDevice.name,
+            status: newDevice.status,
+            last_alert: newDevice.lastAlert,
+            project: newDevice.project,
+            relay_channels: newDevice.relayChannels
+          });
+      } catch (err) {
+        console.warn('Optional Supabase cloud sync warning:', err);
+      }
+    }
+
+    setNewDevName('');
+    setNewDevKey('');
+    setNewDevAlert('');
+    setDeployBusy(false);
+  };
+
+  const handleDeleteCustomDevice = (deviceKey: string) => {
+    if (defaultDevices.some(d => d.key === deviceKey)) {
+      alert('Default system prototypes cannot be deleted from the core catalogue.');
+      return;
+    }
+    const nextDevices = devices.filter(d => d.key !== deviceKey);
+    setDevices(nextDevices);
+    try {
+      window.localStorage.setItem('gkb-devices', JSON.stringify(nextDevices));
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
   // Submit support ticket
   const handleSubmitComplaint = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -3674,7 +3831,7 @@ export default function IoTDevicePortal() {
             onClick={() => setActiveTab('support')}
             className={`px-3 py-1.5 rounded-md text-xs font-medium whitespace-nowrap ${activeTab === 'support' ? 'bg-cyan-500/10 text-cyan-400 border border-cyan-500/40' : 'text-slate-400'}`}
           >
-            Support
+            {isAdmin ? `Complaints (${complaints.filter(c => !c.solved).length})` : 'Support'}
           </button>
           <button
             type="button"
@@ -3779,6 +3936,134 @@ export default function IoTDevicePortal() {
               </section>
             )}
 
+                        {/* Admin: Deploy New Hardware System to Fleet */}
+            {isAdmin && (
+              <section className="rounded-3xl border border-amber-500/40 bg-gradient-to-r from-slate-900 via-slate-900/95 to-slate-950 p-6 sm:p-8 shadow-[0_0_30px_rgba(245,158,11,0.12)] space-y-5">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-800 pb-4">
+                  <div className="flex items-center gap-3">
+                    <span className="p-2.5 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-400">
+                      <Server className="h-5 w-5" />
+                    </span>
+                    <div>
+                      <h3 className="text-xl sm:text-2xl font-black text-white">
+                        Deploy New Hardware System to Fleet
+                      </h3>
+                      <p className="text-xs text-slate-300 mt-0.5">
+                        Register newly deployed ESP32/Arduino prototypes and assign special provisioning keys.
+                      </p>
+                    </div>
+                  </div>
+                  <span className="self-start sm:self-auto text-[10px] font-mono uppercase tracking-wider text-amber-400 bg-amber-500/10 border border-amber-500/30 px-3 py-1 rounded-md font-bold">
+                    Admin Provisioning Desk
+                  </span>
+                </div>
+
+                <form onSubmit={handleCreateDevice} className="space-y-4">
+                  <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                    <div>
+                      <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-300 mb-1">
+                        System / Prototype Name *
+                      </label>
+                      <input
+                        type="text"
+                        placeholder="e.g. Smart Cold Storage Monitor"
+                        value={newDevName}
+                        onChange={e => setNewDevName(e.target.value)}
+                        required
+                        className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3.5 py-2.5 text-xs text-white focus:border-amber-400 focus:outline-none"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-300 mb-1">
+                        Special Provisioning Key *
+                      </label>
+                      <input
+                        type="text"
+                        placeholder="e.g. GKB-COLD-0001"
+                        value={newDevKey}
+                        onChange={e => setNewDevKey(e.target.value.toUpperCase())}
+                        required
+                        className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3.5 py-2.5 font-mono text-xs text-amber-300 focus:border-amber-400 focus:outline-none"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-300 mb-1">
+                        Dashboard & Sensor Profile *
+                      </label>
+                      <select
+                        value={newDevProject}
+                        onChange={e => setNewDevProject(e.target.value as StudentProject)}
+                        className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3.5 py-2.5 text-xs text-white focus:border-amber-400 focus:outline-none"
+                      >
+                        <option value="smart-security-system">Smart Home Security & GSM Intrusion Dialer</option>
+                        <option value="prepaid-energy-meter">Prepaid Smart Energy Meter (STS Token)</option>
+                        <option value="fuel-tank-monitor">Fuel Tank & Generator Telemetry</option>
+                        <option value="water-tank-monitor">Water Tank Level & Automated Pump</option>
+                        <option value="alcohol-breathalyzer">MQ-3 Alcohol Breathalyzer & Ignition Interlock</option>
+                        <option value="fan-regulator">Triac AC Fan Speed Regulator</option>
+                        <option value="light-control">IoT Light & Dimmer Controller</option>
+                        <option value="relay-test">Multi-Channel Relay Controller</option>
+                      </select>
+                    </div>
+
+                    {newDevProject === 'relay-test' && (
+                      <div>
+                        <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-300 mb-1">
+                          Relay Channels
+                        </label>
+                        <select
+                          value={newDevChannels}
+                          onChange={e => setNewDevChannels(e.target.value as '4' | '6' | '8')}
+                          className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3.5 py-2.5 text-xs text-white focus:border-amber-400 focus:outline-none"
+                        >
+                          <option value="4">4 Channels</option>
+                          <option value="6">6 Channels</option>
+                          <option value="8">8 Channels</option>
+                        </select>
+                      </div>
+                    )}
+
+                    <div className={newDevProject === 'relay-test' ? 'sm:col-span-2' : 'sm:col-span-2 lg:col-span-3'}>
+                      <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-300 mb-1">
+                        Initial Telemetry / Location Note
+                      </label>
+                      <input
+                        type="text"
+                        placeholder="e.g. Zone 4 Server Room · Active Telemetry"
+                        value={newDevAlert}
+                        onChange={e => setNewDevAlert(e.target.value)}
+                        className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3.5 py-2.5 text-xs text-white focus:border-amber-400 focus:outline-none"
+                      />
+                    </div>
+                  </div>
+
+                  {deployError && (
+                    <p className="text-xs text-red-300 bg-red-500/10 border border-red-500/30 p-2.5 rounded-lg">
+                      {deployError}
+                    </p>
+                  )}
+                  {deployMessage && (
+                    <p className="text-xs text-emerald-300 bg-emerald-500/10 border border-emerald-500/30 p-2.5 rounded-lg">
+                      {deployMessage}
+                    </p>
+                  )}
+
+                  <div className="flex justify-end pt-1">
+                    <button
+                      type="submit"
+                      disabled={deployBusy}
+                      className="inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-amber-500 to-yellow-500 px-6 py-2.5 text-xs font-bold uppercase tracking-wider text-black shadow-lg shadow-amber-500/20 hover:opacity-90 transition-all disabled:opacity-50"
+                    >
+                      <PlusCircle className="h-4 w-4" />
+                      {deployBusy ? 'Deploying…' : 'Deploy Hardware System'}
+                    </button>
+                  </div>
+                </form>
+              </section>
+            )}
+
             {/* Hardware Fleet Catalog */}
             <section className="space-y-4">
               <div>
@@ -3791,10 +4076,34 @@ export default function IoTDevicePortal() {
                   <article key={device.id} className="flex flex-col justify-between p-5 rounded-2xl border border-slate-800 bg-slate-900/60 hover:border-cyan-500/40 hover:shadow-[0_0_20px_rgba(6,182,212,0.15)] transition-all">
                     <div>
                       <div className="flex items-center justify-between">
-                        <span className="text-[10px] font-mono uppercase tracking-wider text-cyan-400 font-bold">{device.key}</span>
-                        <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-full">
-                          <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" /> Online
-                        </span>
+                        <div className="flex items-center gap-2">
+                          <span className="text-[10px] font-mono uppercase tracking-wider text-cyan-400 font-bold">{device.key}</span>
+                          {device.project && (
+                            <span className="text-[9px] font-mono text-purple-300 bg-purple-500/10 border border-purple-500/20 px-1.5 py-0.2 rounded">
+                              {device.project.replace(/-/g, ' ')}
+                            </span>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-full">
+                            <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" /> Online
+                          </span>
+                          {isAdmin && !defaultDevices.some(d => d.key === device.key) && (
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                if (window.confirm(`Remove custom system "${device.name}" [${device.key}] from fleet catalogue?`)) {
+                                  handleDeleteCustomDevice(device.key);
+                                }
+                              }}
+                              className="text-slate-500 hover:text-red-400 transition-colors p-0.5"
+                              title="Delete deployed device"
+                            >
+                              <X className="w-3.5 h-3.5" />
+                            </button>
+                          )}
+                        </div>
                       </div>
                       <h4 className="text-base font-bold text-white mt-2">{device.name}</h4>
                       <p className="text-xs text-slate-400 mt-1">{device.lastAlert}</p>
@@ -3865,11 +4174,166 @@ export default function IoTDevicePortal() {
 
         {/* ================= SUPPORT & TICKETS VIEW ================= */}
         {activeTab === 'support' && (
-          <div className="max-w-3xl mx-auto space-y-8 animate-fadeIn">
+          <div className="max-w-4xl mx-auto space-y-8 animate-fadeIn">
+            {isAdmin ? (
+              /* ================= ADMIN COMPLAINTS REVIEW CENTER ================= */
+              <section className="rounded-3xl border border-amber-500/30 bg-slate-900/90 p-6 sm:p-8 shadow-[0_0_35px_rgba(245,158,11,0.12)] space-y-6">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-800 pb-5">
+                  <div>
+                    <span className="inline-flex items-center gap-1.5 rounded-full border border-amber-400/40 bg-amber-400/10 px-3 py-1 text-xs font-bold uppercase tracking-widest text-amber-300">
+                      <Shield className="h-3.5 w-3.5" /> Admin Complaints Desk
+                    </span>
+                    <h3 className="text-2xl sm:text-3xl font-black text-white mt-2">
+                      Client Complaints & Support Center
+                    </h3>
+                    <p className="text-xs sm:text-sm text-slate-300 mt-1">
+                      Review support tickets submitted by clients, diagnose issues, and check off resolutions.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => void loadComplaints()}
+                    disabled={complaintsLoading}
+                    className="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-700 bg-slate-800/80 px-4 py-2 text-xs font-bold text-slate-200 hover:border-cyan-400 hover:text-cyan-300 transition-all shrink-0 disabled:opacity-50"
+                  >
+                    <Activity className={`h-4 w-4 ${complaintsLoading ? 'animate-spin' : ''}`} />
+                    {complaintsLoading ? 'Refreshing…' : 'Refresh Tickets'}
+                  </button>
+                </div>
+
+                {/* Stat Counters */}
+                <div className="grid grid-cols-3 gap-3 sm:gap-4">
+                  <div className="p-4 rounded-2xl bg-slate-950/80 border border-slate-800 text-center">
+                    <p className="text-[10px] font-mono uppercase tracking-wider text-slate-400">Total Tickets</p>
+                    <p className="text-2xl sm:text-3xl font-black text-white mt-1">{complaints.length}</p>
+                  </div>
+                  <div className="p-4 rounded-2xl bg-slate-950/80 border border-amber-500/20 text-center">
+                    <p className="text-[10px] font-mono uppercase tracking-wider text-amber-400">Pending Review</p>
+                    <p className="text-2xl sm:text-3xl font-black text-amber-300 mt-1">
+                      {complaints.filter(c => !c.solved).length}
+                    </p>
+                  </div>
+                  <div className="p-4 rounded-2xl bg-slate-950/80 border border-emerald-500/20 text-center">
+                    <p className="text-[10px] font-mono uppercase tracking-wider text-emerald-400">Resolved</p>
+                    <p className="text-2xl sm:text-3xl font-black text-emerald-300 mt-1">
+                      {complaints.filter(c => c.solved).length}
+                    </p>
+                  </div>
+                </div>
+
+                {/* Filter Tabs */}
+                <div className="flex gap-2 border-b border-slate-800 pb-3">
+                  {(['all', 'pending', 'resolved'] as const).map(tab => {
+                    const count = tab === 'all'
+                      ? complaints.length
+                      : tab === 'pending'
+                        ? complaints.filter(c => !c.solved).length
+                        : complaints.filter(c => c.solved).length;
+                    return (
+                      <button
+                        key={tab}
+                        type="button"
+                        onClick={() => setComplaintFilter(tab)}
+                        className={`px-3.5 py-1.5 rounded-lg text-xs font-bold uppercase tracking-wider transition-all ${
+                          complaintFilter === tab
+                            ? 'bg-amber-500 text-black shadow-md shadow-amber-500/20'
+                            : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
+                        }`}
+                      >
+                        {tab === 'all' ? 'All Tickets' : tab === 'pending' ? 'Pending' : 'Resolved'} ({count})
+                      </button>
+                    );
+                  })}
+                </div>
+
+                {complaintError && (
+                  <p className="text-xs text-red-300 bg-red-500/10 border border-red-500/30 p-3 rounded-lg">
+                    {complaintError}
+                  </p>
+                )}
+
+                {/* Ticket Cards List */}
+                <div className="space-y-3">
+                  {complaintsLoading && (
+                    <p className="text-sm text-slate-400 text-center py-8">Loading client tickets from Supabase…</p>
+                  )}
+                  {!complaintsLoading && complaints.length === 0 && (
+                    <div className="text-center py-12 border border-dashed border-slate-800 rounded-2xl">
+                      <CheckCircle className="h-10 w-10 text-emerald-400 mx-auto opacity-40 mb-2" />
+                      <p className="text-sm font-bold text-white">No complaints or support tickets in queue</p>
+                      <p className="text-xs text-slate-500 mt-1">When clients report hardware issues or ask questions, they will appear here.</p>
+                    </div>
+                  )}
+                  {complaints
+                    .filter(t => complaintFilter === 'all' ? true : complaintFilter === 'pending' ? !t.solved : t.solved)
+                    .map(t => (
+                      <article
+                        key={t.id}
+                        className={`p-5 rounded-2xl border transition-all flex flex-col sm:flex-row sm:items-center justify-between gap-4 ${
+                          t.solved
+                            ? 'bg-slate-950/40 border-slate-900 opacity-75'
+                            : 'bg-slate-950 border-amber-500/30 shadow-[0_0_15px_rgba(245,158,11,0.06)]'
+                        }`}
+                      >
+                        <div className="space-y-1.5 flex-1 min-w-0">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="inline-flex items-center gap-1 text-xs font-mono font-bold text-cyan-300 bg-cyan-500/10 px-2 py-0.5 rounded">
+                              <Mail className="w-3 h-3 text-cyan-400" />
+                              {t.clientEmail || 'Client'}
+                            </span>
+                            <span className="text-[11px] font-mono text-slate-400">
+                              • {t.date}
+                            </span>
+                            <span className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full ${
+                              t.solved ? 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/30' : 'bg-amber-500/15 text-amber-300 border border-amber-500/30'
+                            }`}>
+                              {t.solved ? 'Resolved' : 'Pending Review'}
+                            </span>
+                          </div>
+                          <p className="text-sm text-slate-200 leading-relaxed font-sans pt-1">
+                            {t.text}
+                          </p>
+                        </div>
+
+                        <div className="flex items-center gap-2 shrink-0">
+                          <button
+                            type="button"
+                            onClick={() => void toggleComplaintSolved(t)}
+                            className={`px-3.5 py-2 rounded-xl text-xs font-bold inline-flex items-center gap-1.5 transition-all ${
+                              t.solved
+                                ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/40 hover:bg-emerald-500/20'
+                                : 'bg-gradient-to-r from-amber-500 to-yellow-500 text-black hover:opacity-90 shadow-md shadow-amber-500/20'
+                            }`}
+                          >
+                            {t.solved ? <CheckSquare className="w-4 h-4 text-emerald-400" /> : <Square className="w-4 h-4" />}
+                            <span>{t.solved ? 'Resolved (Click to Reopen)' : 'Mark as Solved'}</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (window.confirm('Delete this support ticket permanently?')) {
+                                void handleDeleteComplaint(t.id);
+                              }
+                            }}
+                            className="p-2 rounded-xl border border-slate-800 text-slate-400 hover:border-red-500/40 hover:text-red-400 transition-colors"
+                            title="Delete Ticket"
+                          >
+                            <X className="w-4 h-4" />
+                          </button>
+                        </div>
+                      </article>
+                    ))}
+                </div>
+              </section>
+            ) : null}
+
+            {/* Ticket Submission (Always available for clients; or for admin test reporting) */}
             <section className="rounded-3xl border border-cyan-500/30 bg-slate-900/80 p-6 sm:p-8 space-y-6">
               <div>
                 <span className="text-xs font-bold uppercase tracking-widest text-cyan-400">Technical Support</span>
-                <h3 className="text-2xl font-black text-white mt-1">Hardware Diagnostic & Ticket System</h3>
+                <h3 className="text-2xl font-black text-white mt-1">
+                  {isAdmin ? 'Submit Diagnostic Ticket or Issue Report' : 'Hardware Diagnostic & Ticket System'}
+                </h3>
                 <p className="text-xs text-slate-300 mt-2">
                   Experiencing firmware issues, relay faults, or Wi-Fi connectivity problems? Submit a ticket for direct engineer assistance.
                 </p>
@@ -3903,8 +4367,8 @@ export default function IoTDevicePortal() {
                 </button>
               </form>
 
-              {/* Submitted Tickets */}
-              {complaints.length > 0 && (
+              {/* Submitted Tickets (Client view) */}
+              {!isAdmin && complaints.length > 0 && (
                 <div className="border-t border-slate-800 pt-6 space-y-3">
                   <h4 className="text-sm font-bold text-white">Your Submitted Tickets</h4>
                   <div className="space-y-2">
