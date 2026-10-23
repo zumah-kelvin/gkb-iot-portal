@@ -7,7 +7,7 @@ import {
   Send, Server, Terminal, Activity, Layers, ArrowRight, CheckSquare, Square,
   Sun, Moon, Zap, Wifi, Radio, Gauge, BatteryCharging, Lightbulb, Pencil, Save, X,
   Volume2, VolumeX, PhoneCall, Copy, Download, Code, Check, Siren, ShieldAlert, ShieldCheck, Eye, EyeOff, Clock3,
-  Trash2, PauseCircle, PlayCircle, Ban, RotateCcw
+  Trash2, PauseCircle, PlayCircle, Ban, RotateCcw, CreditCard, MessageSquare, AlertCircle, RefreshCw
 } from 'lucide-react';
 
 type ServiceType = 'student-projects' | 'retail-gadgets';
@@ -31,6 +31,18 @@ type Device = {
   lastAlert: string;
   project?: StudentProject;
   legacyKeys?: string[];
+  relayChannels?: 4 | 6 | 8;
+  paused?: boolean;
+};
+
+type CustomerDevice = {
+  id: number | string;
+  userId: string;
+  key: string;
+  name: string;
+  status: string;
+  lastAlert: string;
+  project?: StudentProject;
   relayChannels?: 4 | 6 | 8;
   paused?: boolean;
 };
@@ -3310,6 +3322,23 @@ export default function IoTDevicePortal() {
   const [complaints, setComplaints] = useState<Complaint[]>([]);
   const [complaintsLoading, setComplaintsLoading] = useState(false);
   const [complaintFilter, setComplaintFilter] = useState<'all' | 'pending' | 'resolved'>('all');
+
+  // Customer Devices & Payment Suspension state
+  const [allCustomerDevices, setAllCustomerDevices] = useState<CustomerDevice[]>([]);
+  const [customerDevicesLoading, setCustomerDevicesLoading] = useState(false);
+  const [customerFilter, setCustomerFilter] = useState<'all' | 'active' | 'suspended'>('all');
+  const [customerSearch, setCustomerSearch] = useState('');
+  const [quickPauseKey, setQuickPauseKey] = useState('');
+  const [paymentModalDevice, setPaymentModalDevice] = useState<Device | CustomerDevice | null>(null);
+  const [copiedPayment, setCopiedPayment] = useState(false);
+  const [suspendedCustomerKeys, setSuspendedCustomerKeys] = useState<string[]>(() => {
+    try {
+      const stored = window.localStorage.getItem('gkb-suspended-client-keys');
+      return stored ? (JSON.parse(stored) as string[]) : [];
+    } catch {
+      return [];
+    }
+  });
   
   // Admin New Device Form
   const [newDevName, setNewDevName] = useState('');
@@ -3386,36 +3415,126 @@ export default function IoTDevicePortal() {
         .eq('user_id', user.id);
       if (disposed) return;
       if (!error && data) {
-        setLinkedDevices(data.map((saved, idx) => ({
-          id: idx + 1000,
-          name: saved.device_name,
-          key: saved.device_key,
-          status: saved.status,
-          lastAlert: saved.last_alert,
-          ...(saved.project ? { project: saved.project as StudentProject } : {}),
-          ...(saved.relay_channels ? { relayChannels: saved.relay_channels as 4 | 6 | 8 } : {})
-        })));
+        const storedSuspended = (() => {
+          try {
+            return (JSON.parse(window.localStorage.getItem('gkb-suspended-client-keys') || '[]') as string[]);
+          } catch {
+            return [];
+          }
+        })();
+
+        setLinkedDevices(data.map((saved, idx) => {
+          const isPaused = saved.status?.toLowerCase().includes('suspend') ||
+                           saved.status?.toLowerCase().includes('pause') ||
+                           storedSuspended.some(k => k.toUpperCase() === saved.device_key.toUpperCase());
+          return {
+            id: idx + 1000,
+            name: saved.device_name,
+            key: saved.device_key,
+            status: isPaused ? 'Suspended - Payment Pending' : saved.status,
+            lastAlert: isPaused ? 'Access paused due to outstanding account balance · Payment Required' : saved.last_alert,
+            paused: isPaused,
+            ...(saved.project ? { project: saved.project as StudentProject } : {}),
+            ...(saved.relay_channels ? { relayChannels: saved.relay_channels as 4 | 6 | 8 } : {})
+          };
+        }));
       }
     };
     void load();
     return () => { disposed = true; };
   }, [user]);
 
+  // Load all customer devices across Supabase when Admin is signed in
+  const loadAllCustomerDevices = useCallback(async () => {
+    if (!relaySupabase || !isAdmin) return;
+    setCustomerDevicesLoading(true);
+    try {
+      const { data, error } = await relaySupabase
+        .from('gkb_user_devices')
+        .select('user_id, device_key, device_name, status, last_alert, project, relay_channels');
+      if (error) throw error;
+      if (data) {
+        const storedSuspended = (() => {
+          try {
+            return (JSON.parse(window.localStorage.getItem('gkb-suspended-client-keys') || '[]') as string[]);
+          } catch {
+            return [];
+          }
+        })();
+
+        const suspendedFromDb = data
+          .filter(r => r.status?.toLowerCase().includes('suspend') || r.status?.toLowerCase().includes('pause'))
+          .map(r => r.device_key.toUpperCase());
+
+        const merged = Array.from(new Set([...storedSuspended, ...suspendedFromDb]));
+        setSuspendedCustomerKeys(merged);
+        try {
+          window.localStorage.setItem('gkb-suspended-client-keys', JSON.stringify(merged));
+        } catch (e) {
+          console.error(e);
+        }
+
+        setAllCustomerDevices(data.map((row, idx) => {
+          const isPaused = row.status?.toLowerCase().includes('suspend') ||
+                           row.status?.toLowerCase().includes('pause') ||
+                           merged.some(k => k.toUpperCase() === row.device_key.toUpperCase());
+          return {
+            id: idx + 5000,
+            userId: row.user_id,
+            key: row.device_key,
+            name: row.device_name,
+            status: isPaused ? 'Suspended - Payment Pending' : (row.status || 'Online'),
+            lastAlert: row.last_alert || (isPaused ? 'Access suspended due to outstanding account balance · Payment Required' : 'Active telemetry'),
+            project: row.project as StudentProject | undefined,
+            relayChannels: row.relay_channels as 4 | 6 | 8 | undefined,
+            paused: isPaused
+          };
+        }));
+      }
+    } catch (err) {
+      console.error('Failed to load all customer devices:', err);
+    } finally {
+      setCustomerDevicesLoading(false);
+    }
+  }, [relaySupabase, isAdmin]);
+
+  useEffect(() => {
+    if (isAdmin) {
+      void loadAllCustomerDevices();
+    }
+  }, [isAdmin, loadAllCustomerDevices]);
+
   // Link device by key
   const handleConnectKey = (keyToUse: string) => {
     const key = keyToUse.trim();
     if (!key) return;
+    const formatted = key.toUpperCase();
     const found = devices.find(d =>
-      d.key.toUpperCase() === key.toUpperCase() ||
-      d.legacyKeys?.some(k => k.toUpperCase() === key.toUpperCase())
+      d.key.toUpperCase() === formatted ||
+      d.legacyKeys?.some(k => k.toUpperCase() === formatted)
     );
 
+    const isSuspended = Boolean(
+      (found && found.paused) ||
+      suspendedCustomerKeys.some(k => k.toUpperCase() === formatted)
+    );
+
+    if (isSuspended && !isAdmin) {
+      const targetDev = found || {
+        id: Date.now(),
+        name: `GKB Hardware Device (${key})`,
+        key: key,
+        status: 'Suspended - Payment Pending',
+        lastAlert: 'Account balance pending · Access locked by GKB Administrator',
+        paused: true
+      };
+      setPaymentModalDevice(targetDev);
+      setLinkMessage(`⛔ Access Suspended: Hardware system "${targetDev.name}" [${key}] is currently locked due to an outstanding account balance.`);
+      setLinkMessageIsError(true);
+      return;
+    }
+
     if (found) {
-      if (found.paused && !isAdmin) {
-        setLinkMessage(`⛔ Access Suspended: Hardware system "${found.name}" [${found.key}] has been paused by the GKB Administrator.`);
-        setLinkMessageIsError(true);
-        return;
-      }
       setSelectedDevice(found);
       setActiveTab('dashboard');
       window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -3440,12 +3559,26 @@ export default function IoTDevicePortal() {
     setLinkBusy(true);
 
     const pairingKey = inputKey.trim();
+    const formatted = pairingKey.toUpperCase();
     const found = devices.find(d =>
-      d.key.toUpperCase() === pairingKey.toUpperCase() ||
-      d.legacyKeys?.some(k => k.toUpperCase() === pairingKey.toUpperCase())
+      d.key.toUpperCase() === formatted ||
+      d.legacyKeys?.some(k => k.toUpperCase() === formatted)
     );
-    if (found && found.paused && !isAdmin) {
-      setLinkMessage(`⛔ Access Suspended: Hardware system "${found.name}" [${found.key}] has been paused by the GKB Administrator.`);
+    const isSuspended = Boolean(
+      (found && found.paused) ||
+      suspendedCustomerKeys.some(k => k.toUpperCase() === formatted)
+    );
+    if (isSuspended && !isAdmin) {
+      const targetDev = found || {
+        id: Date.now(),
+        name: `GKB Hardware Device (${pairingKey})`,
+        key: pairingKey,
+        status: 'Suspended - Payment Pending',
+        lastAlert: 'Account balance pending · Access locked by GKB Administrator',
+        paused: true
+      };
+      setPaymentModalDevice(targetDev);
+      setLinkMessage(`⛔ Access Suspended: Hardware system "${targetDev.name}" [${pairingKey}] is currently locked due to an outstanding balance. Payment required to restore telemetry.`);
       setLinkMessageIsError(true);
       setLinkBusy(false);
       return;
@@ -3670,7 +3803,144 @@ export default function IoTDevicePortal() {
     setDeployBusy(false);
   };
 
-    // Admin: Toggle Pause / Resume Access for any device
+    // Admin: Toggle Pause / Resume Access for Customer Device
+  const handleToggleCustomerDevicePause = async (targetKey: string, currentStatus?: string) => {
+    if (!isAdmin) return;
+    const formattedKey = targetKey.trim().toUpperCase();
+    const isCurrentlyPaused = Boolean(
+      (currentStatus && (currentStatus.toLowerCase().includes('suspend') || currentStatus.toLowerCase().includes('pause'))) ||
+      suspendedCustomerKeys.some(k => k.toUpperCase() === formattedKey)
+    );
+    const nextPaused = !isCurrentlyPaused;
+    const nextStatus = nextPaused ? 'Suspended - Payment Pending' : 'Online';
+    const nextAlert = nextPaused
+      ? 'Access suspended due to outstanding account balance · Payment Required'
+      : 'Payment verified · Access restored by GKB Administrator';
+
+    // 1. Update suspended keys in state & localStorage
+    let nextSuspendedKeys: string[];
+    if (nextPaused) {
+      nextSuspendedKeys = Array.from(new Set([...suspendedCustomerKeys, formattedKey]));
+    } else {
+      nextSuspendedKeys = suspendedCustomerKeys.filter(k => k.toUpperCase() !== formattedKey);
+    }
+    setSuspendedCustomerKeys(nextSuspendedKeys);
+    try {
+      window.localStorage.setItem('gkb-suspended-client-keys', JSON.stringify(nextSuspendedKeys));
+    } catch (e) {
+      console.error(e);
+    }
+
+    // 2. Update allCustomerDevices state
+    setAllCustomerDevices(prev => prev.map(d => {
+      if (d.key.toUpperCase() === formattedKey) {
+        return { ...d, paused: nextPaused, status: nextStatus, lastAlert: nextAlert };
+      }
+      return d;
+    }));
+
+    // 3. Update fleet devices state if key matches
+    setDevices(prev => {
+      const updated = prev.map(d => {
+        if (d.key.toUpperCase() === formattedKey || d.legacyKeys?.map(k => k.toUpperCase()).includes(formattedKey)) {
+          return { ...d, paused: nextPaused, status: nextStatus, lastAlert: nextAlert };
+        }
+        return d;
+      });
+      try {
+        window.localStorage.setItem('gkb-devices', JSON.stringify(updated));
+      } catch (e) {
+        console.error(e);
+      }
+      return updated;
+    });
+
+    // 4. Update linkedDevices state
+    setLinkedDevices(prev => prev.map(d => {
+      if (d.key.toUpperCase() === formattedKey) {
+        return { ...d, paused: nextPaused, status: nextStatus, lastAlert: nextAlert };
+      }
+      return d;
+    }));
+
+    // 5. Update selectedDevice if currently open
+    if (selectedDevice && selectedDevice.key.toUpperCase() === formattedKey) {
+      setSelectedDevice(prev => prev ? { ...prev, paused: nextPaused, status: nextStatus, lastAlert: nextAlert } : null);
+    }
+
+    // 6. Update Supabase gkb_user_devices table
+    if (relaySupabase) {
+      try {
+        await relaySupabase
+          .from('gkb_user_devices')
+          .update({ status: nextStatus, last_alert: nextAlert })
+          .eq('device_key', targetKey);
+      } catch (e) {
+        console.warn('Supabase customer device pause sync warning:', e);
+      }
+    }
+
+    setDeployMessage(nextPaused
+      ? `⛔ Device key "${formattedKey}" has been PAUSED (Payment Hold). Customer access is locked.`
+      : `✅ Device key "${formattedKey}" has been RESTORED. Full customer access reactivated.`);
+  };
+
+  // Admin: Unlink Customer Device from Platform
+  const handleUnlinkCustomerDevice = async (targetKey: string, targetUserId: string) => {
+    if (!isAdmin) return;
+    if (!window.confirm(`Are you sure you want to unlink device key "${targetKey}" from customer account?`)) {
+      return;
+    }
+    setAllCustomerDevices(prev => prev.filter(d => !(d.key.toUpperCase() === targetKey.toUpperCase() && d.userId === targetUserId)));
+    if (relaySupabase) {
+      try {
+        await relaySupabase
+          .from('gkb_user_devices')
+          .delete()
+          .eq('device_key', targetKey)
+          .eq('user_id', targetUserId);
+      } catch (e) {
+        console.warn('Supabase customer device unlink warning:', e);
+      }
+    }
+    setDeployMessage(`🗑️ Device key "${targetKey}" unlinked from customer account.`);
+  };
+
+  // Admin: Quick Freeze / Unfreeze by Key
+  const handleQuickPauseSubmit = (action: 'pause' | 'restore') => {
+    if (!isAdmin || !quickPauseKey.trim()) return;
+    const formatted = quickPauseKey.trim().toUpperCase();
+    const currentPaused = suspendedCustomerKeys.some(k => k.toUpperCase() === formatted);
+    if (action === 'pause' && currentPaused) {
+      setDeployMessage(`ℹ️ Device key "${formatted}" is already marked as paused.`);
+      return;
+    }
+    if (action === 'restore' && !currentPaused) {
+      setDeployMessage(`ℹ️ Device key "${formatted}" is not currently paused.`);
+      return;
+    }
+    void handleToggleCustomerDevicePause(formatted, action === 'pause' ? 'Online' : 'Suspended');
+    setQuickPauseKey('');
+  };
+
+  // Admin: Inspect Device in Dashboard with Administrative Override
+  const handleAdminInspectDevice = (target: CustomerDevice) => {
+    const inspectDev: Device = {
+      id: typeof target.id === 'number' ? target.id : Date.now(),
+      name: target.name,
+      key: target.key,
+      status: target.status,
+      lastAlert: target.lastAlert,
+      project: target.project,
+      relayChannels: target.relayChannels,
+      paused: target.paused
+    };
+    setSelectedDevice(inspectDev);
+    setActiveTab('dashboard');
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  // Admin: Toggle Pause / Resume Access for any device
   const handleTogglePauseDevice = async (deviceKey: string) => {
     if (!isAdmin) return;
     const target = devices.find(d => d.key === deviceKey);
@@ -4031,32 +4301,311 @@ export default function IoTDevicePortal() {
             {/* Linked Devices Section (if any) */}
             {linkedDevices.length > 0 && (
               <section className="space-y-4">
-                <h3 className="text-xl font-bold text-white flex items-center gap-2">
-                  <CheckCircle className="h-5 w-5 text-emerald-400" />
-                  My Linked Devices ({linkedDevices.length})
-                </h3>
-                <div className="grid gap-4 md:grid-cols-2">
-                  {linkedDevices.map(dev => (
-                    <article key={dev.id} className="flex flex-col sm:flex-row sm:items-center justify-between p-5 rounded-2xl border border-purple-500/30 bg-slate-900/60 gap-4">
-                      <div>
-                        <span className="text-[10px] font-mono uppercase tracking-wider text-purple-300">Key: {dev.key}</span>
-                        <h4 className="text-base font-bold text-white mt-1">{dev.name}</h4>
-                        <p className="text-xs text-slate-400 mt-1">{dev.lastAlert}</p>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setSelectedDevice(dev);
-                          setActiveTab('dashboard');
-                        }}
-                        className="inline-flex items-center gap-2 rounded-xl bg-purple-500/20 border border-purple-500/50 px-4 py-2 text-xs font-bold text-purple-200 hover:bg-purple-500/30 transition-all"
-                      >
-                        Launch Dashboard
-                        <ArrowRight className="h-3.5 w-3.5" />
-                      </button>
-                    </article>
-                  ))}
+                <div className="flex items-center justify-between">
+                  <h3 className="text-xl font-bold text-white flex items-center gap-2">
+                    <CheckCircle className="h-5 w-5 text-emerald-400" />
+                    My Linked Devices ({linkedDevices.length})
+                  </h3>
+                  <span className="text-[11px] text-slate-400">
+                    Connected to your account profile
+                  </span>
                 </div>
+                <div className="grid gap-4 md:grid-cols-2">
+                  {linkedDevices.map(dev => {
+                    const isDevicePaused = Boolean(
+                      dev.paused ||
+                      dev.status?.toLowerCase().includes('suspend') ||
+                      dev.status?.toLowerCase().includes('pause') ||
+                      suspendedCustomerKeys.some(k => k.toUpperCase() === dev.key.toUpperCase())
+                    );
+                    return (
+                      <article
+                        key={dev.id}
+                        className={`flex flex-col justify-between p-5 rounded-2xl border transition-all gap-4 ${
+                          isDevicePaused
+                            ? 'border-red-500/40 bg-red-950/20 shadow-[0_0_20px_rgba(239,68,68,0.15)]'
+                            : 'border-purple-500/30 bg-slate-900/60'
+                        }`}
+                      >
+                        <div>
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="text-[10px] font-mono uppercase tracking-wider text-purple-300">
+                              Key: {dev.key}
+                            </span>
+                            {isDevicePaused ? (
+                              <span className="inline-flex items-center gap-1 text-[10px] font-bold text-red-300 bg-red-500/20 border border-red-500/40 px-2.5 py-0.5 rounded-full uppercase tracking-wider">
+                                <AlertCircle className="h-3 w-3 text-red-400" /> Payment Hold
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-300 bg-emerald-500/20 border border-emerald-500/40 px-2.5 py-0.5 rounded-full uppercase tracking-wider">
+                                <CheckCircle className="h-3 w-3 text-emerald-400" /> Active
+                              </span>
+                            )}
+                          </div>
+                          <h4 className="text-base font-bold text-white mt-1.5">{dev.name}</h4>
+                          <p className={`text-xs mt-1 ${isDevicePaused ? 'text-red-300/90 font-medium' : 'text-slate-400'}`}>
+                            {isDevicePaused ? '⚠️ Account balance pending. Remote telemetry & controls locked by GKB Administrator.' : dev.lastAlert}
+                          </p>
+                        </div>
+
+                        <div className="flex items-center gap-2 pt-2 border-t border-slate-800">
+                          {isDevicePaused && !isAdmin ? (
+                            <button
+                              type="button"
+                              onClick={() => setPaymentModalDevice(dev)}
+                              className="w-full inline-flex items-center justify-center gap-2 rounded-xl bg-red-500/20 border border-red-500/50 px-4 py-2.5 text-xs font-bold text-red-200 hover:bg-red-500/30 transition-all shadow-[0_0_15px_rgba(239,68,68,0.2)]"
+                            >
+                              <CreditCard className="h-4 w-4 text-red-400" />
+                              Payment Required · View Details
+                            </button>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setSelectedDevice(dev);
+                                setActiveTab('dashboard');
+                                window.scrollTo({ top: 0, behavior: 'smooth' });
+                              }}
+                              className="w-full inline-flex items-center justify-center gap-2 rounded-xl bg-purple-500/20 border border-purple-500/50 px-4 py-2.5 text-xs font-bold text-purple-200 hover:bg-purple-500/30 transition-all"
+                            >
+                              {isDevicePaused && isAdmin ? 'Admin Override · Open Console' : 'Launch Dashboard'}
+                              <ArrowRight className="h-3.5 w-3.5" />
+                            </button>
+                          )}
+                        </div>
+                      </article>
+                    );
+                  })}
+                </div>
+              </section>
+            )}
+
+            {/* ================= ADMIN: CUSTOMER HARDWARE ACCOUNTS & BILLING DESK ================= */}
+            {isAdmin && (
+              <section className="rounded-3xl border border-red-500/40 bg-gradient-to-r from-slate-900 via-slate-900/95 to-slate-950 p-6 sm:p-8 shadow-[0_0_35px_rgba(239,68,68,0.12)] space-y-6">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-800 pb-5">
+                  <div className="flex items-center gap-3">
+                    <span className="p-3 rounded-2xl bg-red-500/10 border border-red-500/30 text-red-400">
+                      <CreditCard className="h-6 w-6" />
+                    </span>
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <h3 className="text-xl sm:text-2xl font-black text-white">
+                          Customer Accounts & Billing Desk
+                        </h3>
+                        <span className="text-[10px] font-mono uppercase tracking-wider text-red-400 bg-red-500/10 border border-red-500/30 px-2.5 py-0.5 rounded-full font-bold">
+                          Admin Control
+                        </span>
+                      </div>
+                      <p className="text-xs text-slate-300 mt-1">
+                        Pause customer access when installation or hardware balance is unpaid. Restore instant access upon payment confirmation.
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => void loadAllCustomerDevices()}
+                    disabled={customerDevicesLoading}
+                    className="inline-flex items-center gap-2 rounded-xl border border-slate-700 bg-slate-800 px-3.5 py-2 text-xs font-bold text-slate-200 hover:border-cyan-400 hover:text-cyan-300 transition-all shrink-0 disabled:opacity-50"
+                  >
+                    <RefreshCw className={`h-3.5 w-3.5 ${customerDevicesLoading ? 'animate-spin' : ''}`} />
+                    {customerDevicesLoading ? 'Syncing…' : 'Refresh Devices'}
+                  </button>
+                </div>
+
+                {/* Quick Freeze by Device Key */}
+                <div className="rounded-2xl border border-slate-800 bg-slate-950/70 p-4 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <label className="text-xs font-bold uppercase tracking-wider text-slate-300 flex items-center gap-1.5">
+                      <Zap className="h-3.5 w-3.5 text-amber-400" /> Quick Device Key Freeze / Unfreeze
+                    </label>
+                    <span className="text-[10px] text-slate-400">
+                      Target any hardware special key instantly
+                    </span>
+                  </div>
+                  <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+                    <input
+                      type="text"
+                      placeholder="Enter Device Key (e.g. GKB-SEC-0001, GKB-WTR-4412)…"
+                      value={quickPauseKey}
+                      onChange={e => setQuickPauseKey(e.target.value.toUpperCase())}
+                      className="flex-1 rounded-xl border border-slate-700 bg-slate-900 px-3.5 py-2.5 font-mono text-xs text-amber-300 placeholder:text-slate-500 focus:border-red-400 focus:outline-none"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => handleQuickPauseSubmit('pause')}
+                      className="inline-flex items-center justify-center gap-1.5 rounded-xl bg-red-600 px-4 py-2.5 text-xs font-bold text-white hover:bg-red-500 transition-all shadow-md shadow-red-600/20"
+                    >
+                      <PauseCircle className="h-4 w-4" /> Pause Access (Payment Hold)
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleQuickPauseSubmit('restore')}
+                      className="inline-flex items-center justify-center gap-1.5 rounded-xl bg-emerald-600 px-4 py-2.5 text-xs font-bold text-white hover:bg-emerald-500 transition-all shadow-md shadow-emerald-600/20"
+                    >
+                      <PlayCircle className="h-4 w-4" /> Restore Access (Paid)
+                    </button>
+                  </div>
+                </div>
+
+                {/* Metrics Stats Row */}
+                <div className="grid grid-cols-3 gap-3">
+                  <div className="p-3.5 rounded-2xl bg-slate-950/80 border border-slate-800 text-center">
+                    <p className="text-[10px] font-mono uppercase tracking-wider text-slate-400">Customer Units</p>
+                    <p className="text-xl sm:text-2xl font-black text-white mt-0.5">{allCustomerDevices.length}</p>
+                  </div>
+                  <div className="p-3.5 rounded-2xl bg-slate-950/80 border border-emerald-500/20 text-center">
+                    <p className="text-[10px] font-mono uppercase tracking-wider text-emerald-400">Active & Paid</p>
+                    <p className="text-xl sm:text-2xl font-black text-emerald-400 mt-0.5">
+                      {allCustomerDevices.filter(d => !d.paused).length}
+                    </p>
+                  </div>
+                  <div className="p-3.5 rounded-2xl bg-slate-950/80 border border-red-500/20 text-center">
+                    <p className="text-[10px] font-mono uppercase tracking-wider text-red-400">Payment Holds</p>
+                    <p className="text-xl sm:text-2xl font-black text-red-400 mt-0.5">
+                      {allCustomerDevices.filter(d => d.paused).length + suspendedCustomerKeys.length}
+                    </p>
+                  </div>
+                </div>
+
+                {/* Search & Filter Bar */}
+                <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 pt-2">
+                  <div className="flex items-center gap-1.5 bg-slate-950 p-1 rounded-xl border border-slate-800">
+                    <button
+                      type="button"
+                      onClick={() => setCustomerFilter('all')}
+                      className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                        customerFilter === 'all' ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/30' : 'text-slate-400 hover:text-white'
+                      }`}
+                    >
+                      All ({allCustomerDevices.length})
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setCustomerFilter('active')}
+                      className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                        customerFilter === 'active' ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30' : 'text-slate-400 hover:text-white'
+                      }`}
+                    >
+                      Active ({allCustomerDevices.filter(d => !d.paused).length})
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setCustomerFilter('suspended')}
+                      className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                        customerFilter === 'suspended' ? 'bg-red-500/20 text-red-300 border border-red-500/30' : 'text-slate-400 hover:text-white'
+                      }`}
+                    >
+                      Suspended ({allCustomerDevices.filter(d => d.paused).length})
+                    </button>
+                  </div>
+
+                  <input
+                    type="text"
+                    placeholder="Search by key, name, or customer ID…"
+                    value={customerSearch}
+                    onChange={e => setCustomerSearch(e.target.value)}
+                    className="w-full sm:w-64 rounded-xl border border-slate-700 bg-slate-950 px-3.5 py-1.5 text-xs text-white placeholder:text-slate-500 focus:border-cyan-400 focus:outline-none"
+                  />
+                </div>
+
+                {/* Customer Device Cards Grid */}
+                {allCustomerDevices.length === 0 ? (
+                  <div className="rounded-2xl border border-dashed border-slate-800 p-8 text-center space-y-2">
+                    <p className="text-xs text-slate-400">
+                      No customer-linked devices currently registered in Supabase.
+                    </p>
+                    <p className="text-[11px] text-slate-500">
+                      You can still use the Quick Device Key Freeze tool above to lock any specific prototype key (e.g. GKB-SEC-0001) before or after it is paired.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="grid gap-4 md:grid-cols-2">
+                    {allCustomerDevices
+                      .filter(d => {
+                        if (customerFilter === 'active') return !d.paused;
+                        if (customerFilter === 'suspended') return d.paused;
+                        return true;
+                      })
+                      .filter(d => {
+                        if (!customerSearch.trim()) return true;
+                        const q = customerSearch.toLowerCase();
+                        return (
+                          d.key.toLowerCase().includes(q) ||
+                          d.name.toLowerCase().includes(q) ||
+                          d.userId.toLowerCase().includes(q)
+                        );
+                      })
+                      .map(dev => (
+                        <article
+                          key={dev.id}
+                          className={`flex flex-col justify-between p-5 rounded-2xl border transition-all gap-4 ${
+                            dev.paused
+                              ? 'border-red-500/40 bg-slate-900/80 shadow-[0_0_20px_rgba(239,68,68,0.1)]'
+                              : 'border-slate-800 bg-slate-900/60 hover:border-slate-700'
+                          }`}
+                        >
+                          <div>
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="text-[10px] font-mono uppercase tracking-wider text-cyan-400 font-bold">
+                                Key: {dev.key}
+                              </span>
+                              {dev.paused ? (
+                                <span className="inline-flex items-center gap-1 text-[10px] font-bold text-red-300 bg-red-500/20 border border-red-500/40 px-2.5 py-0.5 rounded-full uppercase tracking-wider">
+                                  <AlertCircle className="h-3 w-3 text-red-400" /> Suspended · Payment Hold
+                                </span>
+                              ) : (
+                                <span className="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-300 bg-emerald-500/20 border border-emerald-500/40 px-2.5 py-0.5 rounded-full uppercase tracking-wider">
+                                  <CheckCircle className="h-3 w-3 text-emerald-400" /> Active · Operational
+                                </span>
+                              )}
+                            </div>
+                            <h4 className="text-base font-bold text-white mt-1.5">{dev.name}</h4>
+                            <p className="text-xs text-slate-400 mt-1 line-clamp-2">{dev.lastAlert}</p>
+                            <p className="text-[10px] font-mono text-slate-500 mt-2 truncate">
+                              Customer ID: {dev.userId}
+                            </p>
+                          </div>
+
+                          <div className="pt-3 border-t border-slate-800/80 flex flex-wrap items-center justify-between gap-2">
+                            <button
+                              type="button"
+                              onClick={() => void handleToggleCustomerDevicePause(dev.key, dev.status)}
+                              className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                                dev.paused
+                                  ? 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/40 hover:bg-emerald-500/25'
+                                  : 'bg-red-500/15 text-red-300 border border-red-500/40 hover:bg-red-500/25'
+                              }`}
+                              title={dev.paused ? 'Restore customer access' : 'Pause customer access for non-payment'}
+                            >
+                              {dev.paused ? <PlayCircle className="h-3.5 w-3.5" /> : <PauseCircle className="h-3.5 w-3.5" />}
+                              <span>{dev.paused ? 'Restore Access (Paid)' : 'Pause Access (Non-Payment)'}</span>
+                            </button>
+
+                            <div className="flex items-center gap-2">
+                              <button
+                                type="button"
+                                onClick={() => handleAdminInspectDevice(dev)}
+                                className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-bold text-cyan-300 border border-cyan-500/30 bg-cyan-500/10 hover:bg-cyan-500/20 transition-all"
+                                title="Inspect device telemetry with administrative override"
+                              >
+                                <Eye className="h-3.5 w-3.5" />
+                                <span>Inspect</span>
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => void handleUnlinkCustomerDevice(dev.key, dev.userId)}
+                                className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-bold text-slate-400 hover:text-red-400 border border-slate-800 hover:border-red-500/30 transition-all"
+                                title="Unlink this device from customer account"
+                              >
+                                <Unlink className="h-3.5 w-3.5" />
+                              </button>
+                            </div>
+                          </div>
+                        </article>
+                      ))}
+                  </div>
+                )}
               </section>
             )}
 
@@ -4331,23 +4880,91 @@ export default function IoTDevicePortal() {
 
             {/* Render Dashboard Component */}
             {selectedDevice.paused && !isAdmin ? (
-              <div className="rounded-3xl border border-amber-500/40 bg-slate-900/90 p-8 text-center space-y-4 max-w-xl mx-auto my-12 animate-fadeIn">
-                <div className="h-16 w-16 mx-auto rounded-2xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-center text-amber-400">
-                  <Ban className="h-8 w-8" />
+              <div className="rounded-3xl border border-red-500/40 bg-slate-900/95 p-6 sm:p-10 text-center space-y-6 max-w-xl mx-auto my-8 shadow-[0_0_50px_rgba(239,68,68,0.2)] animate-fadeIn">
+                <div className="h-18 w-18 mx-auto rounded-3xl bg-red-500/10 border border-red-500/30 flex items-center justify-center text-red-400 p-4">
+                  <AlertCircle className="h-10 w-10 text-red-500" />
                 </div>
-                <h3 className="text-2xl font-black text-white">ACCESS SUSPENDED BY ADMINISTRATOR</h3>
-                <p className="text-sm text-slate-300">
-                  Hardware system <strong>{selectedDevice.name}</strong> [{selectedDevice.key}] is currently paused for maintenance or administrative review. Live telemetry and remote commands are disabled.
-                </p>
+                <div>
+                  <span className="text-[10px] font-mono uppercase tracking-widest text-red-400 bg-red-500/10 border border-red-500/30 px-3 py-1 rounded-full font-bold">
+                    Access Suspended · Payment Hold
+                  </span>
+                  <h3 className="text-2xl sm:text-3xl font-black text-white mt-3">
+                    HARDWARE ACCESS LOCKED
+                  </h3>
+                  <p className="text-xs sm:text-sm text-slate-300 mt-2 max-w-md mx-auto">
+                    Access to <strong>{selectedDevice.name}</strong> [Key: <code className="text-amber-300">{selectedDevice.key}</code>] has been temporarily paused by GKB Technologies due to an outstanding installation or subscription balance.
+                  </p>
+                </div>
+
+                {/* Mobile Money Box */}
+                <div className="rounded-2xl border border-amber-500/30 bg-slate-950 p-5 text-left space-y-3">
+                  <div className="flex items-center justify-between border-b border-slate-800 pb-2">
+                    <span className="text-xs font-bold text-amber-300 uppercase tracking-wider flex items-center gap-1.5">
+                      <CreditCard className="h-4 w-4 text-amber-400" /> Official Payment Details
+                    </span>
+                    <span className="text-[10px] font-mono text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded font-bold">
+                      Instant Verification
+                    </span>
+                  </div>
+
+                  <div className="space-y-2 text-xs">
+                    <div className="flex items-center justify-between">
+                      <span className="text-slate-400">Network:</span>
+                      <span className="font-bold text-white">MTN Mobile Money (Ghana)</span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-slate-400">MoMo Number:</span>
+                      <div className="flex items-center gap-2">
+                        <span className="font-mono font-black text-amber-300 text-sm">0256905290</span>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            navigator.clipboard.writeText('0256905290');
+                            setCopiedPayment(true);
+                            setTimeout(() => setCopiedPayment(false), 2000);
+                          }}
+                          className="px-2 py-0.5 rounded bg-slate-800 text-[10px] font-bold text-slate-300 hover:text-white hover:bg-slate-700 transition-colors"
+                        >
+                          {copiedPayment ? 'Copied!' : 'Copy'}
+                        </button>
+                      </div>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-slate-400">Account Name:</span>
+                      <span className="font-bold text-white">Zumah Kelvin / GKB Technologies</span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-slate-400">Reference:</span>
+                      <span className="font-mono font-bold text-cyan-300">{selectedDevice.key}</span>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="space-y-2 pt-2">
+                  <a
+                    href={`https://wa.me/233256905290?text=${encodeURIComponent(`Hello GKB Technologies, I am making payment for my device "${selectedDevice.name}" [Key: ${selectedDevice.key}]. Here is my payment receipt to restore access.`)}`}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="w-full inline-flex items-center justify-center gap-2 rounded-xl bg-emerald-500 px-5 py-3 text-xs font-bold text-black hover:bg-emerald-400 transition-all shadow-[0_0_20px_rgba(16,185,129,0.3)]"
+                  >
+                    <MessageSquare className="h-4 w-4" /> Send MoMo Receipt on WhatsApp (+233 256905290)
+                  </a>
+                  <a
+                    href="tel:+233256905290"
+                    className="w-full inline-flex items-center justify-center gap-2 rounded-xl border border-slate-700 bg-slate-800/80 px-4 py-2.5 text-xs font-bold text-slate-200 hover:border-cyan-400 hover:text-cyan-300 transition-all"
+                  >
+                    <PhoneCall className="h-4 w-4" /> Call GKB Billing Desk
+                  </a>
+                </div>
+
                 <button
                   type="button"
                   onClick={() => setActiveTab('devices')}
-                  className="px-5 py-2.5 rounded-xl bg-slate-800 text-slate-200 hover:bg-slate-700 text-xs font-bold uppercase tracking-wider inline-flex items-center gap-2 cursor-pointer"
+                  className="px-5 py-2.5 rounded-xl bg-slate-800 text-slate-300 hover:bg-slate-700 text-xs font-bold uppercase tracking-wider inline-flex items-center gap-2 cursor-pointer transition-colors"
                 >
                   <ArrowRight className="h-4 w-4 rotate-180" /> Return to Hardware Fleet
                 </button>
-              </div>
-            ) : selectedDevice.project === 'smart-security-system' || selectedDevice.key === 'GKB-SEC-9988' ? (
+              </div>) : selectedDevice.project === 'smart-security-system' || selectedDevice.key === 'GKB-SEC-9988' ? (
               <SmartHomeSecurityDashboard mode="service" device={selectedDevice} />
             ) : selectedDevice.project === 'fuel-tank-monitor' || selectedDevice.key === 'GKB-IUFT-0001' ? (
               <FuelTankMonitorDashboard mode="service" />
@@ -4627,6 +5244,101 @@ export default function IoTDevicePortal() {
           </div>
         </div>
       </footer>
+
+      {/* Payment Resolution Modal for Suspended Customer Devices */}
+      {paymentModalDevice && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-md animate-fadeIn">
+          <div className="relative w-full max-w-lg rounded-3xl border border-red-500/50 bg-slate-900 p-6 sm:p-8 shadow-[0_0_50px_rgba(239,68,68,0.25)] space-y-6">
+            <button
+              type="button"
+              onClick={() => setPaymentModalDevice(null)}
+              className="absolute top-4 right-4 rounded-xl border border-slate-700 bg-slate-800/80 p-2 text-slate-400 hover:text-white hover:border-slate-500 transition-colors"
+            >
+              <X className="h-4 w-4" />
+            </button>
+
+            <div className="text-center space-y-2">
+              <div className="h-16 w-16 mx-auto rounded-2xl bg-red-500/10 border border-red-500/30 flex items-center justify-center text-red-400">
+                <AlertCircle className="h-8 w-8 text-red-500" />
+              </div>
+              <span className="text-[10px] font-mono font-bold tracking-widest text-red-400 uppercase bg-red-500/10 border border-red-500/20 px-3 py-1 rounded-full">
+                Access Suspended · Payment Required
+              </span>
+              <h3 className="text-xl sm:text-2xl font-black text-white">
+                Hardware Service Locked
+              </h3>
+              <p className="text-xs sm:text-sm text-slate-300">
+                Access to <strong>{paymentModalDevice.name}</strong> [Key: <code className="text-amber-300">{paymentModalDevice.key}</code>] has been temporarily paused by GKB Technologies due to an outstanding installation or subscription balance.
+              </p>
+            </div>
+
+            <div className="rounded-2xl border border-amber-500/30 bg-slate-950 p-4 space-y-3 text-left">
+              <div className="flex items-center justify-between border-b border-slate-800 pb-2">
+                <span className="text-xs font-bold text-amber-300 uppercase tracking-wider flex items-center gap-1.5">
+                  <CreditCard className="h-4 w-4 text-amber-400" /> Official Payment Details
+                </span>
+                <span className="text-[10px] font-mono text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded font-bold">
+                  Instant Verification
+                </span>
+              </div>
+
+              <div className="space-y-2 text-xs">
+                <div className="flex items-center justify-between">
+                  <span className="text-slate-400">Network:</span>
+                  <span className="font-bold text-white">MTN Mobile Money (Ghana)</span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-slate-400">MoMo Number:</span>
+                  <div className="flex items-center gap-2">
+                    <span className="font-mono font-black text-amber-300 text-sm">0256905290</span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        navigator.clipboard.writeText('0256905290');
+                        setCopiedPayment(true);
+                        setTimeout(() => setCopiedPayment(false), 2000);
+                      }}
+                      className="px-2 py-0.5 rounded bg-slate-800 text-[10px] font-bold text-slate-300 hover:text-white hover:bg-slate-700 transition-colors"
+                    >
+                      {copiedPayment ? 'Copied!' : 'Copy'}
+                    </button>
+                  </div>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-slate-400">Account Name:</span>
+                  <span className="font-bold text-white">Zumah Kelvin / GKB Technologies</span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-slate-400">Reference:</span>
+                  <span className="font-mono font-bold text-cyan-300">{paymentModalDevice.key}</span>
+                </div>
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <a
+                href={`https://wa.me/233256905290?text=${encodeURIComponent(`Hello GKB Technologies, I am paying for my device "${paymentModalDevice.name}" [Key: ${paymentModalDevice.key}]. Here is my payment receipt to restore access.`)}`}
+                target="_blank"
+                rel="noreferrer"
+                className="w-full inline-flex items-center justify-center gap-2 rounded-xl bg-emerald-500 px-4 py-3 text-xs font-bold text-black hover:bg-emerald-400 transition-all shadow-[0_0_20px_rgba(16,185,129,0.3)]"
+              >
+                <MessageSquare className="h-4 w-4" /> Send MoMo Receipt on WhatsApp (+233 256905290)
+              </a>
+
+              <a
+                href="tel:+233256905290"
+                className="w-full inline-flex items-center justify-center gap-2 rounded-xl border border-slate-700 bg-slate-800/80 px-4 py-2.5 text-xs font-bold text-slate-200 hover:border-cyan-400 hover:text-cyan-300 transition-all"
+              >
+                <PhoneCall className="h-4 w-4" /> Call GKB Billing Desk
+              </a>
+            </div>
+
+            <p className="text-[11px] text-center text-slate-400">
+              Once your payment is verified by our administrator, full telemetry, relay automation, and sensor monitoring are restored immediately.
+            </p>
+          </div>
+        </div>
+      )}
 
       {/* Auth Modal */}
       {loginModalOpen && (
