@@ -6,7 +6,8 @@ import {
   User, Lock, LogOut, PlusCircle, CheckCircle, AlertTriangle, Unlink,
   Send, Server, Terminal, Activity, Layers, ArrowRight, CheckSquare, Square,
   Sun, Moon, Zap, Wifi, Radio, Gauge, BatteryCharging, Lightbulb, Pencil, Save, X,
-  Volume2, VolumeX, PhoneCall, Copy, Download, Code, Check, Siren, ShieldAlert, ShieldCheck, Eye, EyeOff, Clock3
+  Volume2, VolumeX, PhoneCall, Copy, Download, Code, Check, Siren, ShieldAlert, ShieldCheck, Eye, EyeOff, Clock3,
+  Trash2, PauseCircle, PlayCircle, Ban, RotateCcw
 } from 'lucide-react';
 
 type ServiceType = 'student-projects' | 'retail-gadgets';
@@ -31,6 +32,7 @@ type Device = {
   project?: StudentProject;
   legacyKeys?: string[];
   relayChannels?: 4 | 6 | 8;
+  paused?: boolean;
 };
 
 type InventoryItem = {
@@ -69,7 +71,8 @@ function isStoredDevice(value: unknown): value is Device {
     typeof device.lastAlert === 'string' &&
     (device.project === undefined || projectValues.includes(device.project as StudentProject)) &&
     (device.legacyKeys === undefined || (Array.isArray(device.legacyKeys) && device.legacyKeys.every(key => typeof key === 'string'))) &&
-    (device.relayChannels === undefined || device.relayChannels === 4 || device.relayChannels === 6 || device.relayChannels === 8);
+    (device.relayChannels === undefined || device.relayChannels === 4 || device.relayChannels === 6 || device.relayChannels === 8) &&
+    (device.paused === undefined || typeof device.paused === 'boolean');
 }
 
 function InventoryHighlights({ text }: { text: string }) {
@@ -3284,10 +3287,15 @@ export default function IoTDevicePortal() {
   const [creatingAccount, setCreatingAccount] = useState(false);
 
   const [devices, setDevices] = useState<Device[]>(() => {
-    const stored = window.localStorage.getItem('gkb-devices');
-    const saved = stored ? JSON.parse(stored) as Device[] : [];
-    const custom = saved.filter(device => !defaultDevices.some(def => def.key === device.key || def.legacyKeys?.includes(device.key)));
-    return [...defaultDevices, ...custom];
+    try {
+      const deletedKeys = JSON.parse(window.localStorage.getItem('gkb-deleted-device-keys') || '[]') as string[];
+      const stored = window.localStorage.getItem('gkb-devices');
+      const saved = stored ? (JSON.parse(stored) as Device[]) : [];
+      const base = saved.length > 0 ? saved : defaultDevices;
+      return base.filter(device => !deletedKeys.includes(device.key));
+    } catch {
+      return defaultDevices;
+    }
   });
 
   const [linkedDevices, setLinkedDevices] = useState<Device[]>([]);
@@ -3403,6 +3411,11 @@ export default function IoTDevicePortal() {
     );
 
     if (found) {
+      if (found.paused && !isAdmin) {
+        setLinkMessage(`⛔ Access Suspended: Hardware system "${found.name}" [${found.key}] has been paused by the GKB Administrator.`);
+        setLinkMessageIsError(true);
+        return;
+      }
       setSelectedDevice(found);
       setActiveTab('dashboard');
       window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -3431,6 +3444,12 @@ export default function IoTDevicePortal() {
       d.key.toUpperCase() === pairingKey.toUpperCase() ||
       d.legacyKeys?.some(k => k.toUpperCase() === pairingKey.toUpperCase())
     );
+    if (found && found.paused && !isAdmin) {
+      setLinkMessage(`⛔ Access Suspended: Hardware system "${found.name}" [${found.key}] has been paused by the GKB Administrator.`);
+      setLinkMessageIsError(true);
+      setLinkBusy(false);
+      return;
+    }
     const target = found || {
       id: Date.now(),
       name: `GKB Hardware Device (${pairingKey})`,
@@ -3651,18 +3670,118 @@ export default function IoTDevicePortal() {
     setDeployBusy(false);
   };
 
-  const handleDeleteCustomDevice = (deviceKey: string) => {
-    if (defaultDevices.some(d => d.key === deviceKey)) {
-      alert('Default system prototypes cannot be deleted from the core catalogue.');
-      return;
-    }
-    const nextDevices = devices.filter(d => d.key !== deviceKey);
+    // Admin: Toggle Pause / Resume Access for any device
+  const handleTogglePauseDevice = async (deviceKey: string) => {
+    if (!isAdmin) return;
+    const target = devices.find(d => d.key === deviceKey);
+    if (!target) return;
+    const nextPaused = !target.paused;
+    const nextStatus = nextPaused ? 'Paused' : 'Online';
+    const nextAlert = nextPaused
+      ? 'Access administratively paused by GKB Admin.'
+      : 'Access restored by GKB Admin · Online';
+
+    const nextDevices = devices.map(d => {
+      if (d.key === deviceKey) {
+        return {
+          ...d,
+          paused: nextPaused,
+          status: nextStatus,
+          lastAlert: nextAlert
+        };
+      }
+      return d;
+    });
+
     setDevices(nextDevices);
     try {
       window.localStorage.setItem('gkb-devices', JSON.stringify(nextDevices));
-    } catch (err) {
-      console.error(err);
+    } catch (e) {
+      console.error(e);
     }
+
+    if (selectedDevice && selectedDevice.key === deviceKey) {
+      setSelectedDevice(prev => prev ? { ...prev, paused: nextPaused, status: nextStatus, lastAlert: nextAlert } : null);
+    }
+
+    if (relaySupabase && user) {
+      try {
+        await relaySupabase
+          .from('gkb_user_devices')
+          .update({ status: nextStatus, last_alert: nextAlert })
+          .eq('device_key', deviceKey);
+      } catch (e) {
+        console.warn('Supabase device status sync warning:', e);
+      }
+    }
+
+    setDeployMessage(nextPaused
+      ? `⏸️ Access to "${target.name}" [${target.key}] has been PAUSED.`
+      : `▶️ Access to "${target.name}" [${target.key}] has been RESTORED.`);
+  };
+
+  // Admin: Permanently Delete Device from Fleet
+  const handleDeleteDevice = async (deviceKey: string) => {
+    if (!isAdmin) return;
+    const target = devices.find(d => d.key === deviceKey);
+    const targetName = target?.name ?? deviceKey;
+    if (!window.confirm(`Are you sure you want to permanently delete "${targetName}" [${deviceKey}] from the fleet catalogue?`)) {
+      return;
+    }
+
+    const nextDevices = devices.filter(d => d.key !== deviceKey);
+    setDevices(nextDevices);
+
+    try {
+      const deletedKeys = JSON.parse(window.localStorage.getItem('gkb-deleted-device-keys') || '[]') as string[];
+      if (!deletedKeys.includes(deviceKey)) {
+        deletedKeys.push(deviceKey);
+        window.localStorage.setItem('gkb-deleted-device-keys', JSON.stringify(deletedKeys));
+      }
+      window.localStorage.setItem('gkb-devices', JSON.stringify(nextDevices));
+    } catch (e) {
+      console.error(e);
+    }
+
+    setLinkedDevices(prev => prev.filter(d => d.key !== deviceKey));
+
+    if (selectedDevice && selectedDevice.key === deviceKey) {
+      setSelectedDevice(null);
+      setActiveTab('devices');
+    }
+
+    if (relaySupabase) {
+      try {
+        await relaySupabase
+          .from('gkb_user_devices')
+          .delete()
+          .eq('device_key', deviceKey);
+      } catch (e) {
+        console.warn('Supabase device delete warning:', e);
+      }
+    }
+
+    setDeployMessage(`🗑️ Device "${targetName}" [${deviceKey}] has been permanently deleted from the fleet.`);
+  };
+
+  // Admin: Restore Factory Fleet Catalogue
+  const handleResetDefaultDevices = () => {
+    if (!isAdmin) return;
+    if (!window.confirm('Reset fleet catalogue back to factory defaults? Any custom added devices will be retained.')) {
+      return;
+    }
+    window.localStorage.removeItem('gkb-deleted-device-keys');
+    const stored = window.localStorage.getItem('gkb-devices');
+    const saved = stored ? (JSON.parse(stored) as Device[]) : [];
+    const custom = saved.filter(d => !defaultDevices.some(def => def.key === d.key));
+    const restored = [...defaultDevices, ...custom];
+    setDevices(restored);
+    try {
+      window.localStorage.setItem('gkb-devices', JSON.stringify(restored));
+    } catch (e) {
+      console.error(e);
+    }
+    setDeployMessage('🔄 Factory default hardware fleet has been restored.');
   };
 
   // Submit support ticket
@@ -4055,15 +4174,26 @@ export default function IoTDevicePortal() {
                     </p>
                   )}
 
-                  <div className="flex justify-end pt-1">
-                    <button
-                      type="submit"
-                      disabled={deployBusy}
-                      className="inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-amber-500 to-yellow-500 px-6 py-2.5 text-xs font-bold uppercase tracking-wider text-black shadow-lg shadow-amber-500/20 hover:opacity-90 transition-all disabled:opacity-50"
-                    >
-                      <PlusCircle className="h-4 w-4" />
-                      {deployBusy ? 'Deploying…' : 'Deploy Hardware System'}
-                    </button>
+                                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-2 border-t border-slate-800 text-xs">
+                    <span className="text-slate-400">Manage hardware prototypes catalogue:</span>
+                    <div className="flex items-center gap-3">
+                      <button
+                        type="button"
+                        onClick={handleResetDefaultDevices}
+                        className="inline-flex items-center gap-1.5 text-xs text-slate-400 hover:text-cyan-300 transition-colors"
+                      >
+                        <RotateCcw className="h-3.5 w-3.5" />
+                        Restore Factory Fleet Defaults
+                      </button>
+                      <button
+                        type="submit"
+                        disabled={deployBusy}
+                        className="inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-amber-500 to-yellow-500 px-6 py-2.5 text-xs font-bold uppercase tracking-wider text-black shadow-lg shadow-amber-500/20 hover:opacity-90 transition-all disabled:opacity-50"
+                      >
+                        <PlusCircle className="h-4 w-4" />
+                        {deployBusy ? 'Deploying…' : 'Deploy Hardware System'}
+                      </button>
+                    </div>
                   </div>
                 </form>
               </section>
@@ -4078,7 +4208,14 @@ export default function IoTDevicePortal() {
 
               <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
                 {devices.map(device => (
-                  <article key={device.id} className="flex flex-col justify-between p-5 rounded-2xl border border-slate-800 bg-slate-900/60 hover:border-cyan-500/40 hover:shadow-[0_0_20px_rgba(6,182,212,0.15)] transition-all">
+                  <article
+                    key={device.id}
+                    className={`flex flex-col justify-between p-5 rounded-2xl border transition-all ${
+                      device.paused
+                        ? 'border-amber-500/40 bg-slate-900/40 opacity-90 shadow-[0_0_15px_rgba(245,158,11,0.08)]'
+                        : 'border-slate-800 bg-slate-900/60 hover:border-cyan-500/40 hover:shadow-[0_0_20px_rgba(6,182,212,0.15)]'
+                    }`}
+                  >
                     <div>
                       <div className="flex items-center justify-between">
                         <div className="flex items-center gap-2">
@@ -4090,23 +4227,14 @@ export default function IoTDevicePortal() {
                           )}
                         </div>
                         <div className="flex items-center gap-2">
-                          <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-full">
-                            <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" /> Online
-                          </span>
-                          {isAdmin && !defaultDevices.some(d => d.key === device.key) && (
-                            <button
-                              type="button"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                if (window.confirm(`Remove custom system "${device.name}" [${device.key}] from fleet catalogue?`)) {
-                                  handleDeleteCustomDevice(device.key);
-                                }
-                              }}
-                              className="text-slate-500 hover:text-red-400 transition-colors p-0.5"
-                              title="Delete deployed device"
-                            >
-                              <X className="w-3.5 h-3.5" />
-                            </button>
+                          {device.paused ? (
+                            <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-amber-300 bg-amber-500/15 border border-amber-500/30 px-2 py-0.5 rounded-full">
+                              <PauseCircle className="h-3 w-3 text-amber-400" /> Access Paused
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-full">
+                              <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" /> Online
+                            </span>
                           )}
                         </div>
                       </div>
@@ -4114,18 +4242,65 @@ export default function IoTDevicePortal() {
                       <p className="text-xs text-slate-400 mt-1">{device.lastAlert}</p>
                     </div>
 
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setSelectedDevice(device);
-                        setActiveTab('dashboard');
-                        window.scrollTo({ top: 0, behavior: 'smooth' });
-                      }}
-                      className="mt-5 inline-flex items-center justify-center gap-2 rounded-xl border border-cyan-500/40 bg-cyan-500/10 px-4 py-2.5 text-xs font-bold uppercase tracking-wider text-cyan-300 hover:bg-cyan-500/20 transition-all"
-                    >
-                      Open Dashboard
-                      <ArrowRight className="h-3.5 w-3.5" />
-                    </button>
+                    <div className="space-y-3 mt-4">
+                      {/* Admin Controls Strip: Pause & Delete */}
+                      {isAdmin && (
+                        <div className="pt-2 border-t border-slate-800/80 flex items-center justify-between gap-2">
+                          <button
+                            type="button"
+                            onClick={() => void handleTogglePauseDevice(device.key)}
+                            className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                              device.paused
+                                ? 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 hover:bg-emerald-500/25'
+                                : 'bg-amber-500/15 text-amber-300 border border-amber-500/30 hover:bg-amber-500/25'
+                            }`}
+                            title={device.paused ? 'Unpause & Restore Access' : 'Pause Client Access'}
+                          >
+                            {device.paused ? <PlayCircle className="h-3.5 w-3.5" /> : <PauseCircle className="h-3.5 w-3.5" />}
+                            <span>{device.paused ? 'Resume Access' : 'Pause Access'}</span>
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => void handleDeleteDevice(device.key)}
+                            className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-bold text-red-400 border border-red-500/30 bg-red-500/10 hover:bg-red-500/20 transition-all"
+                            title="Delete device permanently from fleet"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                            <span>Delete</span>
+                          </button>
+                        </div>
+                      )}
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (device.paused && !isAdmin) {
+                            alert(`Access to "${device.name}" [${device.key}] is currently suspended by the GKB administrator.`);
+                            return;
+                          }
+                          setSelectedDevice(device);
+                          setActiveTab('dashboard');
+                          window.scrollTo({ top: 0, behavior: 'smooth' });
+                        }}
+                        disabled={device.paused && !isAdmin}
+                        className={`w-full inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-xs font-bold uppercase tracking-wider transition-all ${
+                          device.paused && !isAdmin
+                            ? 'border border-slate-800 bg-slate-900/60 text-slate-500 cursor-not-allowed'
+                            : 'border border-cyan-500/40 bg-cyan-500/10 text-cyan-300 hover:bg-cyan-500/20'
+                        }`}
+                      >
+                        {device.paused && !isAdmin ? (
+                          <>
+                            <Ban className="h-3.5 w-3.5" /> Access Suspended
+                          </>
+                        ) : (
+                          <>
+                            Open Dashboard <ArrowRight className="h-3.5 w-3.5" />
+                          </>
+                        )}
+                      </button>
+                    </div>
                   </article>
                 ))}
               </div>
@@ -4155,7 +4330,24 @@ export default function IoTDevicePortal() {
             </div>
 
             {/* Render Dashboard Component */}
-            {selectedDevice.project === 'smart-security-system' || selectedDevice.key === 'GKB-SEC-9988' ? (
+            {selectedDevice.paused && !isAdmin ? (
+              <div className="rounded-3xl border border-amber-500/40 bg-slate-900/90 p-8 text-center space-y-4 max-w-xl mx-auto my-12 animate-fadeIn">
+                <div className="h-16 w-16 mx-auto rounded-2xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-center text-amber-400">
+                  <Ban className="h-8 w-8" />
+                </div>
+                <h3 className="text-2xl font-black text-white">ACCESS SUSPENDED BY ADMINISTRATOR</h3>
+                <p className="text-sm text-slate-300">
+                  Hardware system <strong>{selectedDevice.name}</strong> [{selectedDevice.key}] is currently paused for maintenance or administrative review. Live telemetry and remote commands are disabled.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('devices')}
+                  className="px-5 py-2.5 rounded-xl bg-slate-800 text-slate-200 hover:bg-slate-700 text-xs font-bold uppercase tracking-wider inline-flex items-center gap-2 cursor-pointer"
+                >
+                  <ArrowRight className="h-4 w-4 rotate-180" /> Return to Hardware Fleet
+                </button>
+              </div>
+            ) : selectedDevice.project === 'smart-security-system' || selectedDevice.key === 'GKB-SEC-9988' ? (
               <SmartHomeSecurityDashboard mode="service" device={selectedDevice} />
             ) : selectedDevice.project === 'fuel-tank-monitor' || selectedDevice.key === 'GKB-IUFT-0001' ? (
               <FuelTankMonitorDashboard mode="service" />
