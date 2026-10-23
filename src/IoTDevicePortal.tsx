@@ -453,7 +453,11 @@ function RelayTestDashboard({ mode }: { mode: 'test' | 'service' }) {
             <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
               <div>
                 <p className="text-sm font-semibold text-white">Supabase signed in</p>
-                <p className="mt-1 text-xs text-slate-400">{relaySession.user.email}</p>
+                <p className="mt-1 text-xs text-slate-400">
+                  {relaySession.user.email?.toLowerCase() === 'zumkel023@gmail.com' ? (
+                    <span className="text-amber-300 font-mono font-bold flex items-center gap-1"><Shield className="w-3 h-3 text-amber-400" /> Admin</span>
+                  ) : relaySession.user.email}
+                </p>
                 {authMessage && <p role={authMessageIsError ? 'alert' : 'status'} className={`mt-2 text-xs ${authMessageIsError ? 'text-red-300' : 'text-emerald-200'}`}>{authMessage}</p>}
               </div>
               <button type="button" onClick={() => void handleSupabaseSignOut()} disabled={authBusy} className="rounded-lg border border-slate-700 px-4 py-2 text-sm font-semibold text-slate-200 hover:border-cyan-400 disabled:opacity-50">
@@ -3325,7 +3329,7 @@ export default function IoTDevicePortal() {
       .eq('user_id', session.user.id)
       .maybeSingle();
 
-    const role = data?.role === 'admin' ? 'admin' : 'client';
+    const role = (data?.role === 'admin' || session.user.email?.toLowerCase() === 'zumkel023@gmail.com') ? 'admin' : 'client';
     setUser({ ...account, role });
   }, []);
 
@@ -3608,13 +3612,28 @@ export default function IoTDevicePortal() {
             </button>
 
             {user ? (
-              <div className="flex items-center space-x-2 sm:space-x-3 bg-slate-900 border border-purple-500/30 px-2 sm:px-3 py-1.5 rounded-lg">
-                <div className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
-                <span className="text-xs text-purple-300 font-mono truncate max-w-[72px] sm:max-w-[120px]">{user.email}</span>
+              <div className={`flex items-center space-x-2 sm:space-x-3 bg-slate-900 px-2.5 sm:px-3.5 py-1.5 rounded-lg border ${
+                (user.role === 'admin' || user.email?.toLowerCase() === 'zumkel023@gmail.com')
+                  ? 'border-amber-500/40 bg-amber-500/5 shadow-[0_0_15px_rgba(245,158,11,0.15)]'
+                  : 'border-purple-500/30'
+              }`}>
+                <div className={`w-2 h-2 rounded-full ${
+                  (user.role === 'admin' || user.email?.toLowerCase() === 'zumkel023@gmail.com')
+                    ? 'bg-amber-400 shadow-[0_0_8px_rgba(245,158,11,0.8)] animate-pulse'
+                    : 'bg-emerald-400 animate-ping'
+                }`} />
+                {(user.role === 'admin' || user.email?.toLowerCase() === 'zumkel023@gmail.com') ? (
+                  <span className="inline-flex items-center gap-1.5 text-xs font-bold font-mono tracking-wider text-amber-300">
+                    <Shield className="w-3.5 h-3.5 text-amber-400 fill-amber-400/20" />
+                    Admin
+                  </span>
+                ) : (
+                  <span className="text-xs text-purple-300 font-mono truncate max-w-[72px] sm:max-w-[120px]">{user.email}</span>
+                )}
                 <button
                   type="button"
                   onClick={handleLogout}
-                  className="text-slate-400 hover:text-red-400 transition-colors"
+                  className="text-slate-400 hover:text-red-400 transition-colors pl-1"
                   title="Logout"
                 >
                   <LogOut className="w-4 h-4" />
