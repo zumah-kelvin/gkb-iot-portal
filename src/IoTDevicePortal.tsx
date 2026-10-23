@@ -2174,8 +2174,8 @@ const char* SUPABASE_URL  = "https://ditnksmvcacnzdguqcgz.supabase.co/rest/v1/gk
 const char* SUPABASE_ANON = "sb_publishable_33KQl1SmvaBaqNzxWJiyzw_HuLMgWAl";
 
 // ================= ESP32 PIN CONFIGURATION =================
-#define PIR_PIN         13  // PIR Sensor OUT (GPIO 13)
-#define BUZZER_PIN      14  // Active Piezo Buzzer (+) (GPIO 14)
+#define PIR_PIN         15  // PIR Sensor OUT (GPIO 15)
+#define BUZZER_PIN      4   // Active Piezo Buzzer (+) (GPIO 4)
 #define ALARM_LED_PIN   2   // ESP32 Onboard LED & Alarm Strobe (GPIO 2)
 #define GSM_RX_PIN      16  // ESP32 RX2 (Connects to SIM800L TXD)
 #define GSM_TX_PIN      17  // ESP32 TX2 (Connects to SIM800L RXD)
@@ -3142,7 +3142,7 @@ function SmartHomeSecurityDashboard({ mode, device }: { mode: 'test' | 'service'
                   <tr>
                     <td className="py-1.5 px-2 text-white font-bold">PIR Sensor</td>
                     <td className="py-1.5 px-2 text-cyan-300">OUT</td>
-                    <td className="py-1.5 px-2 text-yellow-300">GPIO 13</td>
+                    <td className="py-1.5 px-2 text-yellow-300">GPIO 15</td>
                     <td className="py-1.5 px-2 text-slate-400">VCC to 5V, GND to GND</td>
                   </tr>
                   <tr>
@@ -3160,7 +3160,7 @@ function SmartHomeSecurityDashboard({ mode, device }: { mode: 'test' | 'service'
                   <tr>
                     <td className="py-1.5 px-2 text-white font-bold">Piezo Buzzer</td>
                     <td className="py-1.5 px-2 text-cyan-300">Positive (+)</td>
-                    <td className="py-1.5 px-2 text-yellow-300">GPIO 14</td>
+                    <td className="py-1.5 px-2 text-yellow-300">GPIO 4</td>
                     <td className="py-1.5 px-2 text-slate-400">Negative (-) to GND</td>
                   </tr>
                   <tr>
