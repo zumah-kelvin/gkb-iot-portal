@@ -2346,6 +2346,11 @@ void sendCloudTelemetry() {
 }
 
 function SmartHomeSecurityDashboard({ mode, device }: { mode: 'test' | 'service'; device?: Device }) {
+  const [showFirmwareModal, setShowFirmwareModal] = useState(false);
+  const [emergencyPhone, setEmergencyPhone] = useState('+233256905290');
+  const [copiedCode, setCopiedCode] = useState(false);
+  const activeKey = device?.key ?? 'GKB-SEC-0001';
+
   const [armedMode, setArmedMode] = useState<'away' | 'stay' | 'disarmed'>('away');
   const [motionDetected, setMotionDetected] = useState(true);
   const [soundMuted, setSoundMuted] = useState(false);
