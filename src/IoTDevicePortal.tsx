@@ -2167,13 +2167,20 @@ function generateArduinoCode(secretKey: string = 'GKB-SEC-0001', emergencyNumber
   return `/*
  * =========================================================================
  * GKB TECHNOLOGIES — ESP32 IOT SMART SECURITY & GSM INTRUSION DIALER
- * Hardware: ESP32 NodeMCU / DevKit (WROOM-32)
- * Cellular Engine: SIM800L / SIM900 GSM Modem (Hardware UART2)
- * Sensors: HC-SR501 PIR Infrared Motion Detector
- * Actuators: Active Piezo Buzzer & High-Intensity Alarm Strobe LED
- * Destination Emergency Number: ${emergencyNumber}
- * Provisioned Secret Device Key: ${secretKey}
- * Live IoT Cloud: https://gkb-iot.netlify.app/
+ * Target Board       : ESP32 Dev Module / NodeMCU-32S (ESP-WROOM-32)
+ * Cellular Engine    : SIM800L / SIM900 GSM Modem (Hardware UART2)
+ * Motion Sensor      : HC-SR501 PIR Infrared Motion Detector (GPIO 15)
+ * Audio Alarm        : Active Piezo Buzzer (GPIO 4)
+ * Visual Alarm       : High-Intensity Alarm LED / Onboard Blue LED (GPIO 2)
+ * Destination Target : ${emergencyNumber}
+ * Secret Device Key  : ${secretKey}
+ * Live IoT Cloud     : https://gkb-iot.netlify.app/
+ * =========================================================================
+ * WIRING GUIDE:
+ * 1. PIR Sensor (HC-SR501): VCC -> 5V, GND -> GND, OUT -> GPIO 15
+ * 2. Active Buzzer: Positive (+) -> GPIO 4, Negative (-) -> GND
+ * 3. SIM800L Modem: TXD -> GPIO 16 (RX2), RXD -> GPIO 17 (TX2), VCC -> 3.7V-4.2V (2A), GND -> GND
+ * 4. Strobe LED: Anode (+) -> GPIO 2 (via 330 ohm resistor), Cathode (-) -> GND
  * =========================================================================
  */
 
@@ -2184,7 +2191,7 @@ function generateArduinoCode(secretKey: string = 'GKB-SEC-0001', emergencyNumber
 #define GKB_DEVICE_SECRET_KEY  "${secretKey}"
 #define EMERGENCY_PHONE_NUMBER "${emergencyNumber}"
 
-// Optional: Wi-Fi Credentials for Live Telemetry Sync
+// Wi-Fi Credentials for Live Cloud Telemetry Sync
 const char* WIFI_SSID     = "YOUR_WIFI_SSID";
 const char* WIFI_PASSWORD = "YOUR_WIFI_PASSWORD";
 
@@ -2199,12 +2206,18 @@ const char* SUPABASE_ANON = "sb_publishable_33KQl1SmvaBaqNzxWJiyzw_HuLMgWAl";
 #define GSM_RX_PIN      16  // ESP32 RX2 (Connects to SIM800L TXD)
 #define GSM_TX_PIN      17  // ESP32 TX2 (Connects to SIM800L RXD)
 
-// Use ESP32 Hardware UART2 for 100% reliable baud rates with SIM800L
+// Use ESP32 Hardware UART2 for 100% reliable cellular communication
 HardwareSerial gsmSerial(2);
 
 unsigned long lastCallTime = 0;
 const unsigned long CALL_COOLDOWN = 30000; // 30-second cooldown between call bursts
 bool systemArmed = true;
+
+void triggerLocalAlarm();
+void dialEmergencyNumber(const char* number);
+void sendIntrusionSMS(const char* number);
+void sendCloudTelemetry(const char* statusMsg);
+void handleSerialCommands();
 
 void setup() {
   Serial.begin(115200);
@@ -2221,9 +2234,12 @@ void setup() {
   digitalWrite(ALARM_LED_PIN, LOW);
 
   Serial.println("\\n=======================================================");
-  Serial.println("🛡️  GKB TECHNOLOGIES — ESP32 SECURITY SYSTEM INITIALIZED");
+  Serial.println("🛡️  GKB TECHNOLOGIES — ESP32 SECURITY SYSTEM ONLINE");
   Serial.print("🔑 Secret Hardware Key : "); Serial.println(GKB_DEVICE_SECRET_KEY);
   Serial.print("📞 Emergency Recipient : "); Serial.println(EMERGENCY_PHONE_NUMBER);
+  Serial.println("🔌 PIR Motion Sensor   : GPIO 15");
+  Serial.println("🔊 Active Buzzer       : GPIO 4");
+  Serial.println("📶 SIM800L Cellular    : GPIO 16 (RX) / GPIO 17 (TX)");
   Serial.println("=======================================================");
 
   // Optional: Connect to Wi-Fi for Live Cloud Telemetry
@@ -2233,70 +2249,84 @@ void setup() {
     Serial.print("]...");
     WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
     int attempts = 0;
-    while (WiFi.status() != WL_CONNECTED && attempts < 15) {
+    while (WiFi.status() != WL_CONNECTED && attempts < 20) {
       delay(500);
       Serial.print(".");
       attempts++;
     }
     if (WiFi.status() == WL_CONNECTED) {
       Serial.println(" Connected! IP: " + WiFi.localIP().toString());
+      sendCloudTelemetry("System Armed - Online");
     } else {
-      Serial.println(" Wi-Fi skipped (offline cellular mode active).");
+      Serial.println(" Wi-Fi connection timed out. Cellular GSM mode active.");
     }
   }
 
   // Initialize SIM800L GSM module
   Serial.println("Configuring SIM800L Cellular Modem...");
-  delay(3000); // Allow SIM800L to register on cell network
+  delay(2000);
   gsmSerial.println("AT");
-  delay(1000);
+  delay(500);
   gsmSerial.println("AT+CMGF=1"); // Set SMS to text mode
-  delay(1000);
+  delay(500);
   gsmSerial.println("AT+CLIP=1"); // Enable caller ID
-  delay(1000);
+  delay(500);
 
-  Serial.println("✅ SIM800L Ready & Registered. PIR Motion Sensor Armed!\\n");
+  Serial.println("✅ Hardware Ready. Listening for real PIR motion (GPIO 15)...\\n");
+  Serial.println("[GKB-READY] {\\\"key\\\":\\\"GKB-SEC-0001\\\",\\\"status\\\":\\\"ONLINE\\\",\\\"armed\\\":true}");
 }
 
 void loop() {
-  if (!systemArmed) return;
+  // 1. Process incoming USB commands from GKB Web Dashboard
+  handleSerialCommands();
 
-  // Read PIR sensor digital state (HIGH when motion detected)
-  int motionState = digitalRead(PIR_PIN);
+  // 2. Read physical PIR motion sensor on GPIO 15
+  if (systemArmed) {
+    int motionState = digitalRead(PIR_PIN);
 
-  if (motionState == HIGH) {
-    unsigned long currentMillis = millis();
+    if (motionState == HIGH) {
+      unsigned long currentMillis = millis();
 
-    // Prevent call looping within cooldown window
-    if (currentMillis - lastCallTime > CALL_COOLDOWN || lastCallTime == 0) {
-      lastCallTime = currentMillis;
+      // Prevent call spamming within cooldown window
+      if (currentMillis - lastCallTime > CALL_COOLDOWN || lastCallTime == 0) {
+        lastCallTime = currentMillis;
 
-      Serial.println("\\n🚨 [ALERT] PIR MOTION DETECTED IN PROTECTED ZONE!");
-      Serial.println("⚡ Tripping alarm, placing voice call to " + String(EMERGENCY_PHONE_NUMBER) + "...");
+        Serial.println("\\n🚨 [ALERT] PIR MOTION DETECTED IN PROTECTED ZONE!");
+        Serial.println("⚡ Tripping GPIO 4 buzzer, flashing GPIO 2 strobe...");
+        Serial.println("[GKB-EVENT] {\\\"key\\\":\\\"" + String(GKB_DEVICE_SECRET_KEY) + "\\\",\\\"event\\\":\\\"MOTION_TRIPPED\\\",\\\"pin\\\":15,\\\"buzzer\\\":1,\\\"target\\\":\\\"" + String(EMERGENCY_PHONE_NUMBER) + "\\\"}");
 
-      // 1. Trigger local audio buzzer and visual strobe
-      triggerLocalAlarm();
+        // 1. Trigger local active piezo buzzer on GPIO 4 and LED on GPIO 2
+        triggerLocalAlarm();
 
-      // 2. Make emergency cellular voice call via SIM800L
-      dialEmergencyNumber(EMERGENCY_PHONE_NUMBER);
+        // 2. Make emergency cellular voice call to Kelvin via SIM800L
+        dialEmergencyNumber(EMERGENCY_PHONE_NUMBER);
 
-      // 3. Send automated SMS intrusion alert
-      sendIntrusionSMS(EMERGENCY_PHONE_NUMBER);
+        // 3. Send automated SMS intrusion alert
+        sendIntrusionSMS(EMERGENCY_PHONE_NUMBER);
 
-      // 4. Send Cloud Telemetry to GKB Portal via Supabase (if Wi-Fi connected)
-      sendCloudTelemetry();
+        // 4. Send Cloud Telemetry to GKB Portal via Supabase
+        sendCloudTelemetry("Alarm Active - Motion Detected (GPIO 15)");
+      }
     }
   }
 
-  // Check for any responses from SIM800L modem
+  // 3. Heartbeat report every 10 seconds over Serial
+  static unsigned long lastHeartbeat = 0;
+  if (millis() - lastHeartbeat > 10000) {
+    lastHeartbeat = millis();
+    int currentPir = digitalRead(PIR_PIN);
+    Serial.println("[GKB-HEARTBEAT] {\\\"key\\\":\\\"" + String(GKB_DEVICE_SECRET_KEY) + "\\\",\\\"pir\\\":" + String(currentPir) + ",\\\"armed\\\":" + String(systemArmed ? "true" : "false") + ",\\\"buzzer\\\":" + String(digitalRead(BUZZER_PIN)) + "}");
+  }
+
+  // 4. Echo any cellular responses from SIM800L modem to Serial Monitor
   while (gsmSerial.available()) {
     Serial.write(gsmSerial.read());
   }
 }
 
 void triggerLocalAlarm() {
-  Serial.println("🔊 Sounding Piezo Buzzer & Pulsing LED Strobe...");
-  for (int i = 0; i < 8; i++) {
+  Serial.println("🔊 Sounding Piezo Buzzer on GPIO 4 & Pulsing LED...");
+  for (int i = 0; i < 10; i++) {
     digitalWrite(BUZZER_PIN, HIGH);
     digitalWrite(ALARM_LED_PIN, HIGH);
     delay(200);
@@ -2307,32 +2337,32 @@ void triggerLocalAlarm() {
 }
 
 void dialEmergencyNumber(const char* number) {
-  Serial.print("📞 Calling Emergency Target: ");
+  Serial.print("📞 Calling Emergency Target via SIM800L: ");
   Serial.println(number);
 
-  // Send ATD command to SIM800L (the semicolon ';' specifies a voice call)
+  // Send ATD command to SIM800L (semicolon ';' specifies voice call)
   gsmSerial.print("ATD");
   gsmSerial.print(number);
   gsmSerial.println(";");
 
-  // Let call ring for 25 seconds
+  // Ring for 25 seconds
   delay(25000);
 
   // Hang up the call
   gsmSerial.println("ATH");
-  Serial.println("Voice call sequence finished.");
+  Serial.println("Voice call sequence completed.");
 }
 
 void sendIntrusionSMS(const char* number) {
   Serial.print("💬 Dispatching SMS alert to: ");
   Serial.println(number);
 
-  gsmSerial.print("AT+CMGS=\"");
+  gsmSerial.print("AT+CMGS=\\\"" );
   gsmSerial.print(number);
-  gsmSerial.println("\"");
+  gsmSerial.println("\\\"");
   delay(1000);
 
-  gsmSerial.print("🚨 GKB SECURITY ALERT: Intrusion detected in Zone 1! Secret Key: ");
+  gsmSerial.print("🚨 GKB SECURITY ALERT: Intrusion detected in Zone 1 (PIR Trip)! Secret Key: ");
   gsmSerial.print(GKB_DEVICE_SECRET_KEY);
   gsmSerial.print(". Live Dashboard: https://gkb-iot.netlify.app/");
   delay(200);
@@ -2343,7 +2373,7 @@ void sendIntrusionSMS(const char* number) {
   Serial.println("SMS alert command dispatched.");
 }
 
-void sendCloudTelemetry() {
+void sendCloudTelemetry(const char* statusMsg) {
   if (WiFi.status() == WL_CONNECTED) {
     HTTPClient http;
     http.begin(SUPABASE_URL);
@@ -2352,10 +2382,43 @@ void sendCloudTelemetry() {
     http.addHeader("Authorization", String("Bearer ") + SUPABASE_ANON);
     http.addHeader("Prefer", "return=minimal");
 
-    String jsonPayload = "{\\"status\\":\\"Alarm Active\\",\\"last_alert\\":\\"Intrusion detected at Living Room (PIR trip) - Dialed " + String(EMERGENCY_PHONE_NUMBER) + "\\"}";
+    String jsonPayload = "{\\\"status\\\":\\\"" + String(statusMsg) + "\\\",\\\"last_alert\\\":\\\"PIR Trip at Zone 1 (GPIO 15) - Dialed " + String(EMERGENCY_PHONE_NUMBER) + "\\\"}";
     int httpResponseCode = http.PATCH(jsonPayload);
     Serial.println("Cloud Telemetry Response: " + String(httpResponseCode));
     http.end();
+  }
+}
+
+void handleSerialCommands() {
+  if (Serial.available()) {
+    String cmd = Serial.readStringUntil('\\n');
+    cmd.trim();
+    if (cmd == "TEST_BUZZER") {
+      Serial.println("[GKB-CMD] Testing Active Buzzer on GPIO 4 for 800ms...");
+      digitalWrite(BUZZER_PIN, HIGH);
+      digitalWrite(ALARM_LED_PIN, HIGH);
+      delay(800);
+      digitalWrite(BUZZER_PIN, LOW);
+      digitalWrite(ALARM_LED_PIN, LOW);
+      Serial.println("[GKB-CMD] Buzzer test completed successfully.");
+    } else if (cmd == "ARM") {
+      systemArmed = true;
+      Serial.println("[GKB-CMD] System ARMED (Away Mode). Monitoring PIR on GPIO 15.");
+    } else if (cmd == "DISARM") {
+      systemArmed = false;
+      digitalWrite(BUZZER_PIN, LOW);
+      digitalWrite(ALARM_LED_PIN, LOW);
+      Serial.println("[GKB-CMD] System DISARMED. Buzzer and strobe silenced.");
+    } else if (cmd == "SILENCE") {
+      digitalWrite(BUZZER_PIN, LOW);
+      digitalWrite(ALARM_LED_PIN, LOW);
+      Serial.println("[GKB-CMD] Alarm silenced.");
+    } else if (cmd == "DIAL_TEST") {
+      Serial.println("[GKB-CMD] Initiating Emergency GSM Call Test to " + String(EMERGENCY_PHONE_NUMBER) + "...");
+      dialEmergencyNumber(EMERGENCY_PHONE_NUMBER);
+    } else if (cmd == "PING") {
+      Serial.println("[GKB-PONG] {\\\"status\\\":\\\"ONLINE\\\",\\\"key\\\":\\\"" + String(GKB_DEVICE_SECRET_KEY) + "\\\",\\\"pir\\\":" + String(digitalRead(PIR_PIN)) + ",\\\"armed\\\":" + String(systemArmed ? "true" : "false") + "}");
+    }
   }
 }`;
 }
@@ -2366,26 +2429,23 @@ function SmartHomeSecurityDashboard({ mode, device }: { mode: 'test' | 'service'
   const [copiedCode, setCopiedCode] = useState(false);
   const activeKey = device?.key ?? 'GKB-SEC-0001';
 
+  // Real Hardware State - ZERO SIMULATION: starts nominally disarmed/armed with motion false
   const [armedMode, setArmedMode] = useState<'away' | 'stay' | 'disarmed'>('away');
-  const [motionDetected, setMotionDetected] = useState(true);
+  const [motionDetected, setMotionDetected] = useState(false);
   const [soundMuted, setSoundMuted] = useState(false);
-  const [autoSimulate, setAutoSimulate] = useState(false);
-  const [pirSensitivity, setPirSensitivity] = useState<'low' | 'medium' | 'high'>('high');
+  const [hardwareConnected, setHardwareConnected] = useState(false);
+  const [connectionType, setConnectionType] = useState<'cloud' | 'serial' | 'standby'>('cloud');
+  const [lastHeartbeatTime, setLastHeartbeatTime] = useState<string>('Listening for ESP32...');
+  const [serialLogs, setSerialLogs] = useState<string[]>([]);
+  const [showSerialConsole, setShowSerialConsole] = useState(false);
   const [audioNeedsInteraction, setAudioNeedsInteraction] = useState(false);
-  const [activeZone, setActiveZone] = useState<string>('zone-1');
-  const [zones, setZones] = useState<Array<{
-    id: string;
-    name: string;
-    location: string;
-    type: 'pir' | 'magnetic' | 'vibration' | 'infrared';
-    status: 'triggered' | 'secure';
-    lastTripped: string;
-  }>>([
-    { id: 'zone-1', name: 'Living Room PIR #01', location: 'Living Room (Front Window)', type: 'pir', status: 'triggered', lastTripped: 'Just now (14:22:05)' },
-    { id: 'zone-2', name: 'Front Entrance Contact', location: 'Main Front Door', type: 'magnetic', status: 'secure', lastTripped: '12 mins ago' },
-    { id: 'zone-3', name: 'Kitchen Glass & Window', location: 'Rear Kitchen Window', type: 'vibration', status: 'secure', lastTripped: '1 hour ago' },
-    { id: 'zone-4', name: 'Patio Infrared Barrier', location: 'Backyard Perimeter', type: 'infrared', status: 'secure', lastTripped: 'Yesterday' }
-  ]);
+  const [serialBusy, setSerialBusy] = useState(false);
+  const [hardwareBuzzerActive, setHardwareBuzzerActive] = useState(false);
+
+  // Serial Port References
+  const serialPortRef = useRef<any>(null);
+  const serialWriterRef = useRef<any>(null);
+
   const [alerts, setAlerts] = useState<Array<{
     id: string;
     timestamp: string;
@@ -2393,15 +2453,24 @@ function SmartHomeSecurityDashboard({ mode, device }: { mode: 'test' | 'service'
     detail: string;
     severity: 'critical' | 'warning' | 'info';
   }>>([
-    { id: 'alert-1', timestamp: '14:22:05', title: 'Motion Tripped · Living Room', detail: 'PIR Motion Sensor #01 detected movement in Zone 1. Blinking red background strobe & audio buzzer energized.', severity: 'critical' },
-    { id: 'alert-2', timestamp: '14:20:00', title: 'System Armed (Away)', detail: 'All interior PIR and perimeter contact sensors armed with active intrusion buzzer protocol.', severity: 'info' },
-    { id: 'alert-3', timestamp: '14:15:20', title: 'Gateway Heartbeat OK', detail: 'ESP32-CAM Node connected via MQTT on 2.4GHz Wi-Fi (RSSI: -58 dBm).', severity: 'info' }
+    {
+      id: 'init-1',
+      timestamp: new Date().toLocaleTimeString(),
+      title: 'Real Hardware Mode Active',
+      detail: `Hardware linked to secret key ${activeKey}. Listening for real PIR sensor trips on GPIO 15.`,
+      severity: 'info'
+    }
   ]);
+
+  const addSerialLog = useCallback((msg: string) => {
+    const timestamp = new Date().toLocaleTimeString();
+    setSerialLogs(prev => [`[${timestamp}] ${msg}`, ...prev.slice(0, 99)]);
+  }, []);
 
   const audioCtxRef = useRef<AudioContext | null>(null);
   const buzzerCleanupRef = useRef<(() => void) | null>(null);
 
-  // Helper to ensure AudioContext exists and handle browser autoplay
+  // Helper to ensure AudioContext exists
   const ensureAudioContext = useCallback(() => {
     try {
       const AudioCtx = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
@@ -2424,7 +2493,7 @@ function SmartHomeSecurityDashboard({ mode, device }: { mode: 'test' | 'service'
     }
   }, []);
 
-  // Stop buzzer cleanly
+  // Stop web audio buzzer cleanly
   const stopBuzzer = useCallback(() => {
     if (buzzerCleanupRef.current) {
       try {
@@ -2436,7 +2505,7 @@ function SmartHomeSecurityDashboard({ mode, device }: { mode: 'test' | 'service'
     }
   }, []);
 
-  // Synthesize authentic electronic security buzzer sound using Web Audio API
+  // Synthesize electronic security buzzer sound
   const startBuzzer = useCallback(() => {
     stopBuzzer();
     const ctx = ensureAudioContext();
@@ -2448,18 +2517,14 @@ function SmartHomeSecurityDashboard({ mode, device }: { mode: 'test' | 'service'
 
     try {
       const now = ctx.currentTime;
-
-      // Primary rasping oscillator: sawtooth wave at 165Hz
       const osc1 = ctx.createOscillator();
       osc1.type = 'sawtooth';
       osc1.frequency.setValueAtTime(165, now);
 
-      // Secondary tone at 330Hz for metallic buzzer grit
       const osc2 = ctx.createOscillator();
       osc2.type = 'square';
       osc2.frequency.setValueAtTime(330, now);
 
-      // LFO for fast pulsed buzzing (10Hz: BZZ-BZZ-BZZ-BZZ)
       const lfo = ctx.createOscillator();
       lfo.type = 'square';
       lfo.frequency.setValueAtTime(10, now);
@@ -2470,22 +2535,18 @@ function SmartHomeSecurityDashboard({ mode, device }: { mode: 'test' | 'service'
       const pulseGain = ctx.createGain();
       pulseGain.gain.setValueAtTime(0.25, now);
 
-      // Master output gain with smooth ramp
       const masterGain = ctx.createGain();
       masterGain.gain.setValueAtTime(0.0001, now);
-      masterGain.gain.linearRampToValueAtTime(0.18, now + 0.05);
+      masterGain.gain.linearRampToValueAtTime(0.22, now + 0.05);
 
-      // Lowpass filter to shape the electronic rasp
       const filter = ctx.createBiquadFilter();
       filter.type = 'lowpass';
       filter.frequency.setValueAtTime(1200, now);
       filter.Q.setValueAtTime(1.5, now);
 
-      // Connect LFO modulation
       lfo.connect(lfoGain);
       lfoGain.connect(pulseGain.gain);
 
-      // Mix osc1 and osc2 into filter
       osc1.connect(filter);
       const osc2Gain = ctx.createGain();
       osc2Gain.gain.setValueAtTime(0.35, now);
@@ -2533,7 +2594,7 @@ function SmartHomeSecurityDashboard({ mode, device }: { mode: 'test' | 'service'
 
   const isAlarmActive = motionDetected && armedMode !== 'disarmed';
 
-  // Manage buzzer playback according to motion, sound mute, and arming state
+  // Manage buzzer playback according to alarm state
   useEffect(() => {
     if (isAlarmActive && !soundMuted) {
       startBuzzer();
@@ -2560,76 +2621,226 @@ function SmartHomeSecurityDashboard({ mode, device }: { mode: 'test' | 'service'
     };
   }, [stopBuzzer]);
 
-  // Auto-simulate periodic motion pulses if toggled
-  useEffect(() => {
-    if (!autoSimulate) return;
-    const interval = setInterval(() => {
-      setMotionDetected(current => {
-        const next = !current;
-        setZones(prev => prev.map(z => z.id === 'zone-1' ? {
-          ...z,
-          status: next ? 'triggered' : 'secure',
-          lastTripped: next ? 'Just now' : z.lastTripped
-        } : z));
-        return next;
-      });
-    }, 8000);
-    return () => clearInterval(interval);
-  }, [autoSimulate]);
-
-  const handleTriggerMotion = () => {
-    ensureAudioContext();
-    setMotionDetected(true);
-    setZones(prev => prev.map(z => z.id === 'zone-1' ? {
-      ...z,
-      status: 'triggered',
-      lastTripped: 'Just now'
-    } : z));
+  // ================= 1. DIRECT USB WEB SERIAL API LINK =================
+  const handleSerialLine = useCallback((line: string) => {
+    addSerialLog(line);
     const timeStr = new Date().toLocaleTimeString();
-    setAlerts(prev => [{
-      id: `${Date.now()}`,
-      timestamp: timeStr,
-      title: 'Motion Tripped · Living Room PIR #01',
-      detail: 'PIR infrared movement detected. Blinking red background strobe & electronic alarm buzzer activated.',
-      severity: 'critical'
-    }, ...prev.slice(0, 9)]);
+    setLastHeartbeatTime(timeStr);
+    setHardwareConnected(true);
+
+    // Check for PIR motion detection from ESP32
+    if (
+      line.includes('PIR MOTION DETECTED') ||
+      line.includes('MOTION_TRIPPED') ||
+      line.includes('[ALERT]')
+    ) {
+      ensureAudioContext();
+      setMotionDetected(true);
+      setHardwareBuzzerActive(true);
+      setAlerts(prev => [{
+        id: `${Date.now()}`,
+        timestamp: timeStr,
+        title: '🚨 PHYSICAL MOTION DETECTED (ESP32 GPIO 15)',
+        detail: `PIR Sensor on GPIO 15 detected physical movement! ESP32 triggered GPIO 4 active buzzer and dialed ${emergencyPhone} via SIM800L.`,
+        severity: 'critical'
+      }, ...prev.slice(0, 19)]);
+    } else if (line.includes('[GKB-READY]') || line.includes('[GKB-HEARTBEAT]') || line.includes('[GKB-PONG]')) {
+      try {
+        const jsonMatch = line.match(/\{.*\}/);
+        if (jsonMatch) {
+          const payload = JSON.parse(jsonMatch[0]);
+          if (payload.pir === 1) {
+            setMotionDetected(true);
+          }
+          if (payload.buzzer !== undefined) {
+            setHardwareBuzzerActive(Boolean(payload.buzzer));
+          }
+        }
+      } catch {
+        // ignore parse error
+      }
+    }
+  }, [addSerialLog, ensureAudioContext, emergencyPhone]);
+
+  const connectWebSerial = async () => {
+    const nav = navigator as any;
+    if (!nav.serial) {
+      alert('Web Serial is supported in Google Chrome, Microsoft Edge, and Opera.\n\nPlease plug your ESP32 into a USB port on this computer and open this portal in Chrome or Edge to link directly, or use Cloud Telemetry via Wi-Fi.');
+      return;
+    }
+    setSerialBusy(true);
+    try {
+      const port = await nav.serial.requestPort();
+      await port.open({ baudRate: 115200 });
+      serialPortRef.current = port;
+      setHardwareConnected(true);
+      setConnectionType('serial');
+      setLastHeartbeatTime(new Date().toLocaleTimeString());
+      addSerialLog('🔌 Connected to ESP32 on USB COM Port @ 115200 Baud');
+
+      // Start text decoder stream
+      const textDecoder = new TextDecoderStream();
+      port.readable.pipeTo(textDecoder.writable);
+      const reader = textDecoder.readable.getReader();
+
+      // Read loop
+      void (async () => {
+        let buffer = '';
+        try {
+          while (true) {
+            const { value, done } = await reader.read();
+            if (done) break;
+            if (value) {
+              buffer += value;
+              const lines = buffer.split('\n');
+              buffer = lines.pop() || '';
+              for (const line of lines) {
+                const trimmed = line.trim();
+                if (trimmed) {
+                  handleSerialLine(trimmed);
+                }
+              }
+            }
+          }
+        } catch (err: any) {
+          console.warn('Serial reader exited:', err);
+          addSerialLog('Serial port disconnected: ' + (err?.message || 'closed'));
+          setHardwareConnected(false);
+        }
+      })();
+
+      // Send initial ping
+      setTimeout(() => void sendSerialCommand('PING'), 1000);
+    } catch (err: any) {
+      if (err?.name !== 'NotFoundError') {
+        console.error('Serial connection failed:', err);
+        addSerialLog('Serial connection error: ' + err.message);
+      }
+    } finally {
+      setSerialBusy(false);
+    }
   };
 
-  const handleClearMotion = () => {
+  const sendSerialCommand = async (cmd: string) => {
+    if (!serialPortRef.current || !serialPortRef.current.writable) {
+      addSerialLog('Cannot send: USB Serial port is not open.');
+      return;
+    }
+    try {
+      const textEncoder = new TextEncoderStream();
+      textEncoder.readable.pipeTo(serialPortRef.current.writable);
+      const writer = textEncoder.writable.getWriter();
+      await writer.write(cmd + '\n');
+      writer.releaseLock();
+      addSerialLog('>> Sent command to ESP32: ' + cmd);
+    } catch (err: any) {
+      console.error('Failed to send serial command:', err);
+      addSerialLog('Command send failed: ' + err.message);
+    }
+  };
+
+  // ================= 2. CLOUD REALTIME TELEMETRY LINK (SUPABASE) =================
+  useEffect(() => {
+    if (!relaySupabase) return;
+    let disposed = false;
+
+    const pollCloudTelemetry = async () => {
+      try {
+        const { data, error } = await relaySupabase
+          .from('gkb_user_devices')
+          .select('status, last_alert')
+          .eq('device_key', activeKey)
+          .maybeSingle();
+
+        if (disposed || error || !data) return;
+
+        if (data.status?.toLowerCase().includes('alarm') || data.last_alert?.toLowerCase().includes('intrusion')) {
+          setMotionDetected(true);
+          setHardwareConnected(true);
+          setLastHeartbeatTime(new Date().toLocaleTimeString());
+        }
+      } catch {
+        // ignore
+      }
+    };
+
+    const interval = setInterval(pollCloudTelemetry, 3500);
+    void pollCloudTelemetry();
+
+    // Supabase Realtime Channel
+    const channel = relaySupabase
+      .channel(`gkb_telemetry_${activeKey}`)
+      .on('postgres_changes', {
+        event: 'UPDATE',
+        schema: 'public',
+        table: 'gkb_user_devices',
+        filter: `device_key=eq.${activeKey}`
+      }, payload => {
+        const row = payload.new as any;
+        if (row) {
+          setLastHeartbeatTime(new Date().toLocaleTimeString());
+          setHardwareConnected(true);
+          if (row.status?.toLowerCase().includes('alarm') || row.last_alert?.toLowerCase().includes('intrusion')) {
+            ensureAudioContext();
+            setMotionDetected(true);
+            setAlerts(prev => [{
+              id: `${Date.now()}`,
+              timestamp: new Date().toLocaleTimeString(),
+              title: '🚨 CLOUD TELEMETRY: INTRUSION ALARM',
+              detail: row.last_alert || 'ESP32 sent live motion breach event to GKB Cloud.',
+              severity: 'critical'
+            }, ...prev.slice(0, 19)]);
+          }
+        }
+      })
+      .subscribe();
+
+    return () => {
+      disposed = true;
+      clearInterval(interval);
+      channel.unsubscribe();
+    };
+  }, [activeKey, ensureAudioContext]);
+
+  // Handle Clear Motion Alarm
+  const handleClearMotion = async () => {
+    ensureAudioContext();
     setMotionDetected(false);
-    setZones(prev => prev.map(z => z.id === 'zone-1' ? {
-      ...z,
-      status: 'secure'
-    } : z));
+    setHardwareBuzzerActive(false);
+    stopBuzzer();
+
+    if (connectionType === 'serial' && serialPortRef.current) {
+      await sendSerialCommand('DISARM');
+      setTimeout(() => void sendSerialCommand('ARM'), 1200);
+    }
+
+    if (relaySupabase) {
+      try {
+        await relaySupabase
+          .from('gkb_user_devices')
+          .update({
+            status: 'Online',
+            last_alert: 'Alarm cleared by user · System Nominal'
+          })
+          .eq('device_key', activeKey);
+      } catch {
+        // ignore
+      }
+    }
+
     const timeStr = new Date().toLocaleTimeString();
     setAlerts(prev => [{
       id: `${Date.now()}`,
       timestamp: timeStr,
-      title: 'Motion Cleared · Zone 1 Reset',
-      detail: 'Sensors reset to nominal idle state. Blinking red strobe and buzzer silenced.',
+      title: 'Alarm Cleared · System Nominal',
+      detail: 'Sensors reset to monitoring state. Strobe LED and buzzer deactivated.',
       severity: 'info'
-    }, ...prev.slice(0, 9)]);
+    }, ...prev.slice(0, 19)]);
   };
 
   const toggleSound = () => {
     ensureAudioContext();
     setSoundMuted(prev => !prev);
-  };
-
-  const toggleZone = (zoneId: string) => {
-    ensureAudioContext();
-    setZones(prev => prev.map(z => {
-      if (z.id !== zoneId) return z;
-      const nextStatus = z.status === 'triggered' ? 'secure' : 'triggered';
-      if (zoneId === 'zone-1') {
-        setMotionDetected(nextStatus === 'triggered');
-      }
-      return {
-        ...z,
-        status: nextStatus,
-        lastTripped: nextStatus === 'triggered' ? 'Just now' : z.lastTripped
-      };
-    }));
   };
 
   return (
@@ -2665,36 +2876,30 @@ function SmartHomeSecurityDashboard({ mode, device }: { mode: 'test' | 'service'
         .gkb-siren-strobe {
           animation: gkb-siren-strobe 0.6s infinite ease-in-out;
         }
-        @keyframes gkb-radar-ring {
-          0% { transform: scale(0.4); opacity: 1; }
-          100% { transform: scale(2.4); opacity: 0; }
-        }
-        .gkb-radar-ring {
-          animation: gkb-radar-ring 1.5s infinite ease-out;
-        }
       `}</style>
 
       {/* Top Header Badge & Navigation Info */}
       <header className="flex flex-col gap-4 rounded-xl border border-white/10 bg-slate-950/60 p-4 sm:flex-row sm:items-center sm:justify-between sm:p-5">
         <div>
           <div className="mb-2 flex flex-wrap items-center gap-2">
-            <span className="rounded-full border border-cyan-400/30 bg-cyan-400/10 px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.18em] text-cyan-300">
-              {mode === 'test' ? 'Private device test preview' : 'Service portal'}
+            <span className="rounded-full border border-emerald-400/40 bg-emerald-400/10 px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.18em] text-emerald-300 flex items-center gap-1.5">
+              <span className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse" />
+              Real Hardware Mode · No Simulations
             </span>
-            <span className="rounded-full border border-purple-400/30 bg-purple-400/10 px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.14em] text-purple-300">
-              Key: {device?.key ?? 'GKB-SEC-9988'}
+            <span className="rounded-full border border-purple-400/30 bg-purple-400/10 px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.14em] text-purple-300 font-mono">
+              Key: {activeKey}
             </span>
             <span className={`rounded-full border px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider ${
               armedMode === 'away' ? 'border-red-500/40 bg-red-500/20 text-red-300' : armedMode === 'stay' ? 'border-amber-500/40 bg-amber-500/20 text-amber-300' : 'border-slate-600 bg-slate-800 text-slate-400'
             }`}>
-              Armed Mode: {armedMode.toUpperCase()}
+              Armed: {armedMode.toUpperCase()}
             </span>
           </div>
-          <h2 id="security-system-title" className="text-xl font-bold text-white sm:text-2xl">
-            Smart Home Security System v1
+          <h2 id="security-system-title" className="text-xl sm:text-2xl font-black text-white">
+            Smart Home Security & GSM Dialer
           </h2>
-          <p className="mt-1 text-sm text-slate-300">
-            Multi-zone PIR motion monitoring · Blinking red background strobe · Web Audio alarm buzzer
+          <p className="text-xs text-slate-300 mt-1">
+            Linked to physical ESP32 node. Monitoring HC-SR501 PIR sensor on <strong className="text-cyan-300 font-mono">GPIO 15</strong> with automated cellular dialing to <strong className="text-amber-300 font-mono">{emergencyPhone}</strong>.
           </p>
         </div>
 
@@ -2713,16 +2918,28 @@ function SmartHomeSecurityDashboard({ mode, device }: { mode: 'test' | 'service'
             }`}
           >
             {soundMuted ? <VolumeX className="h-4 w-4 text-slate-400" /> : <Volume2 className="h-4 w-4 text-cyan-300" />}
-            <span>Buzzer: {soundMuted ? 'Muted' : isAlarmActive ? 'Buzzing' : 'Ready'}</span>
+            <span>Buzzer: {soundMuted ? 'Muted' : isAlarmActive ? 'Buzzing' : 'Armed'}</span>
           </button>
-          <span className="inline-flex items-center gap-2 rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-xs font-semibold text-emerald-300">
-            <span className="h-2 w-2 rounded-full bg-emerald-400 animate-ping" />
-            Gateway Online
+
+          <span className={`inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-xs font-semibold ${
+            hardwareConnected
+              ? 'border-emerald-500/40 bg-emerald-500/15 text-emerald-300'
+              : 'border-amber-500/40 bg-amber-500/10 text-amber-300'
+          }`}>
+            <span className={`h-2 w-2 rounded-full ${hardwareConnected ? 'bg-emerald-400 animate-ping' : 'bg-amber-400'}`} />
+            {hardwareConnected ? 'ESP32 Online' : 'Waiting for ESP32'}
           </span>
-          <span className="inline-flex items-center gap-1.5 rounded-lg border border-cyan-500/20 bg-slate-900/60 px-3 py-2 text-xs font-medium text-cyan-300">
-            <Wifi className="h-3.5 w-3.5" />
-            2.4GHz (-58 dBm)
-          </span>
+
+          <button
+            type="button"
+            onClick={connectWebSerial}
+            disabled={serialBusy}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-cyan-500/40 bg-cyan-500/15 px-3 py-2 text-xs font-bold text-cyan-200 hover:bg-cyan-500/25 transition-all shadow-md shadow-cyan-500/10"
+            title="Connect your ESP32 directly via USB cable (COM Port)"
+          >
+            <Cpu className="h-3.5 w-3.5 text-cyan-400" />
+            <span>{connectionType === 'serial' ? 'USB Connected' : 'Connect via USB'}</span>
+          </button>
         </div>
       </header>
 
@@ -2754,15 +2971,15 @@ function SmartHomeSecurityDashboard({ mode, device }: { mode: 'test' | 'service'
             <div>
               <div className="flex items-center gap-2">
                 <span className="rounded bg-red-600 px-2.5 py-0.5 text-[10px] font-black uppercase tracking-widest text-white shadow">
-                  CRITICAL INTRUSION
+                  CRITICAL HARDWARE INTRUSION
                 </span>
-                <span className="text-xs font-bold text-red-200">Zone 1 Breach</span>
+                <span className="text-xs font-bold text-red-200">Zone 1 · PIR (GPIO 15)</span>
               </div>
               <h3 className="text-lg font-black tracking-wide text-white sm:text-2xl">
-                MOTION DETECTED · LIVING ROOM
+                PHYSICAL MOTION DETECTED!
               </h3>
               <p className="text-xs text-red-100 sm:text-sm">
-                PIR sensor tripped · Blinking red background strobe active · {soundMuted ? 'Audio buzzer muted' : 'Electronic audio buzzer sounding continuously'}
+                HC-SR501 PIR sensor on GPIO 15 tripped · GPIO 4 piezo buzzer sounding · Automated cellular dialing to {emergencyPhone} active.
               </p>
             </div>
           </div>
@@ -2788,103 +3005,105 @@ function SmartHomeSecurityDashboard({ mode, device }: { mode: 'test' | 'service'
       ) : (
         <div className="flex flex-col gap-3 rounded-xl border border-emerald-500/40 bg-emerald-950/30 p-4 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex items-center gap-3">
-            <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-emerald-500/20 text-emerald-400">
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-emerald-500/20 border border-emerald-500/40 text-emerald-400">
               <ShieldCheck className="h-6 w-6" />
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <span className="rounded bg-emerald-500/30 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-emerald-200">
-                  SYSTEM READY
+                <span className="text-xs font-bold uppercase tracking-wider text-emerald-400">
+                  Perimeter Secure · Monitoring
                 </span>
-                <span className="text-xs text-slate-400">All 4 Zones Secure</span>
+                <span className="text-[10px] text-slate-400">
+                  Last check: {lastHeartbeatTime}
+                </span>
               </div>
-              <h3 className="text-sm font-bold text-white sm:text-base">
-                PERIMETER & INTERIOR SECURE · MONITORING ACTIVE
-              </h3>
-              <p className="text-xs text-slate-400">
-                No infrared disturbance. Background buzzer and blinking red strobe in standby.
+              <p className="text-xs text-slate-300">
+                PIR sensor on GPIO 15 active · Zero intrusion events detected · GSM modem ready on {emergencyPhone}.
               </p>
             </div>
           </div>
-          <button
-            type="button"
-            onClick={handleTriggerMotion}
-            className="inline-flex items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-red-600 to-rose-600 px-5 py-2.5 text-xs font-bold uppercase tracking-wider text-white shadow-[0_0_20px_rgba(239,68,68,0.5)] transition-all hover:scale-105 hover:from-red-500 hover:to-rose-500"
-          >
-            <Siren className="h-4 w-4 animate-bounce" />
-            Simulate Motion Detection
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => void sendSerialCommand('TEST_BUZZER')}
+              className="inline-flex items-center gap-1.5 rounded-xl border border-slate-700 bg-slate-800/80 px-3.5 py-2 text-xs font-bold text-amber-300 hover:border-amber-400 transition-all"
+            >
+              <Volume2 className="h-3.5 w-3.5 text-amber-400" /> Test Hardware Buzzer (GPIO 4)
+            </button>
+            <button
+              type="button"
+              onClick={() => void sendSerialCommand('DIAL_TEST')}
+              className="inline-flex items-center gap-1.5 rounded-xl border border-slate-700 bg-slate-800/80 px-3.5 py-2 text-xs font-bold text-cyan-300 hover:border-cyan-400 transition-all"
+            >
+              <PhoneCall className="h-3.5 w-3.5 text-cyan-400" /> Test Phone Call
+            </button>
+          </div>
         </div>
       )}
 
-      {/* Interactive Sensor Zones Grid */}
-      <div>
-        <div className="mb-3 flex items-center justify-between">
-          <h3 className="flex items-center gap-2 text-sm font-bold uppercase tracking-wider text-slate-300">
-            <Activity className="h-4 w-4 text-cyan-400" />
-            Monitored Security Zones
-          </h3>
-          <span className="text-xs text-slate-400">Click any zone to test trigger / reset</span>
+      {/* Hardware Pins & Physical Peripherals Grid */}
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-4 space-y-2">
+          <div className="flex items-center justify-between text-xs">
+            <span className="text-slate-400 flex items-center gap-1.5 font-bold uppercase">
+              <Radio className="h-4 w-4 text-cyan-400" /> PIR Sensor
+            </span>
+            <span className="font-mono text-cyan-300 font-bold">GPIO 15</span>
+          </div>
+          <p className="text-base font-bold text-white">
+            {motionDetected ? '🚨 Motion Tripped' : 'Nominal Monitoring'}
+          </p>
+          <p className="text-[11px] text-slate-400">HC-SR501 Infrared Motion Detector</p>
         </div>
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-          {zones.map(zone => {
-            const isTriggered = zone.status === 'triggered' && armedMode !== 'disarmed';
-            return (
-              <button
-                key={zone.id}
-                type="button"
-                onClick={() => {
-                  setActiveZone(zone.id);
-                  toggleZone(zone.id);
-                }}
-                className={`relative flex flex-col justify-between overflow-hidden rounded-xl border p-4 text-left transition-all ${
-                  isTriggered
-                    ? 'border-red-400 bg-red-950/70 shadow-[0_0_20px_rgba(239,68,68,0.5)] animate-pulse'
-                    : activeZone === zone.id
-                      ? 'border-cyan-400/50 bg-slate-950/70'
-                      : 'border-white/10 bg-slate-950/40 hover:border-white/20'
-                }`}
-              >
-                {/* Radar effect on triggered zone */}
-                {isTriggered && (
-                  <span className="pointer-events-none absolute -right-4 -top-4 h-16 w-16 rounded-full bg-red-500/20 gkb-radar-ring" />
-                )}
-                <div>
-                  <div className="flex items-center justify-between">
-                    <span className="text-[10px] font-mono uppercase tracking-wider text-slate-400">
-                      {zone.id.toUpperCase()} · {zone.type.toUpperCase()}
-                    </span>
-                    <span className={`inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-bold uppercase ${
-                      isTriggered ? 'bg-red-600 text-white animate-pulse' : 'bg-emerald-500/20 text-emerald-300'
-                    }`}>
-                      {isTriggered ? '🚨 BREACH' : 'SECURE'}
-                    </span>
-                  </div>
-                  <h4 className="mt-2 font-bold text-white text-sm">{zone.name}</h4>
-                  <p className="text-xs text-slate-400">{zone.location}</p>
-                </div>
-                <div className="mt-4 flex items-center justify-between border-t border-white/5 pt-2 text-[11px]">
-                  <span className="text-slate-400">Status</span>
-                  <span className={`font-semibold ${isTriggered ? 'text-red-300' : 'text-slate-300'}`}>
-                    {isTriggered ? 'Motion Tripped!' : 'Clear & Armed'}
-                  </span>
-                </div>
-              </button>
-            );
-          })}
+
+        <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-4 space-y-2">
+          <div className="flex items-center justify-between text-xs">
+            <span className="text-slate-400 flex items-center gap-1.5 font-bold uppercase">
+              <Volume2 className="h-4 w-4 text-amber-400" /> Audio Buzzer
+            </span>
+            <span className="font-mono text-amber-300 font-bold">GPIO 4</span>
+          </div>
+          <p className="text-base font-bold text-white">
+            {hardwareBuzzerActive || isAlarmActive ? '🔊 Sounding Alarm' : 'Armed & Silent'}
+          </p>
+          <p className="text-[11px] text-slate-400">Active Piezo Siren Actuator</p>
+        </div>
+
+        <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-4 space-y-2">
+          <div className="flex items-center justify-between text-xs">
+            <span className="text-slate-400 flex items-center gap-1.5 font-bold uppercase">
+              <Smartphone className="h-4 w-4 text-purple-400" /> Cellular Modem
+            </span>
+            <span className="font-mono text-purple-300 font-bold">GPIO 16/17</span>
+          </div>
+          <p className="text-base font-bold text-white truncate">{emergencyPhone}</p>
+          <p className="text-[11px] text-slate-400">SIM800L / SIM900 GSM Engine</p>
+        </div>
+
+        <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-4 space-y-2">
+          <div className="flex items-center justify-between text-xs">
+            <span className="text-slate-400 flex items-center gap-1.5 font-bold uppercase">
+              <Zap className="h-4 w-4 text-yellow-400" /> Secret Key
+            </span>
+            <span className="font-mono text-yellow-300 font-bold">{activeKey}</span>
+          </div>
+          <p className="text-base font-bold text-emerald-400">
+            {hardwareConnected ? '🟢 Hardware Linked' : '🟡 Standby'}
+          </p>
+          <p className="text-[11px] text-slate-400">Authentication Token</p>
         </div>
       </div>
 
-      {/* Interactive Control Deck & Live Telemetry */}
+      {/* Main Control Grid */}
       <div className="grid gap-6 lg:grid-cols-3">
-        {/* Arming & Mode Controls */}
+        {/* Arming Controls */}
         <div className="rounded-xl border border-white/10 bg-slate-950/50 p-5 space-y-4">
           <h3 className="flex items-center gap-2 text-sm font-bold uppercase tracking-wider text-slate-300">
             <Lock className="h-4 w-4 text-purple-400" />
             Alarm System Arming
           </h3>
           <p className="text-xs text-slate-400">
-            Choose system arming mode. Disarming halts visual strobes and suppresses the audio buzzer.
+            Select system mode. Disarming immediately silences the GPIO 4 buzzer and cancels emergency GSM calls.
           </p>
           <div className="grid grid-cols-3 gap-2">
             {(['away', 'stay', 'disarmed'] as const).map(modeKey => (
@@ -2894,16 +3113,19 @@ function SmartHomeSecurityDashboard({ mode, device }: { mode: 'test' | 'service'
                 onClick={() => {
                   ensureAudioContext();
                   setArmedMode(modeKey);
+                  if (modeKey === 'disarmed') {
+                    void sendSerialCommand('DISARM');
+                  } else {
+                    void sendSerialCommand('ARM');
+                  }
                   const timeStr = new Date().toLocaleTimeString();
                   setAlerts(prev => [{
                     id: `${Date.now()}`,
                     timestamp: timeStr,
-                    title: `Armed Mode Changed: ${modeKey.toUpperCase()}`,
-                    detail: modeKey === 'disarmed'
-                      ? 'System disarmed. Visual and audio alarms suppressed.'
-                      : `System set to ${modeKey.toUpperCase()} mode. Motion detection will trigger strobe & buzzer.`,
+                    title: `Mode: ${modeKey.toUpperCase()}`,
+                    detail: modeKey === 'disarmed' ? 'System disarmed. Physical alarms suppressed.' : `System armed (${modeKey}). Monitoring PIR on GPIO 15.`,
                     severity: modeKey === 'disarmed' ? 'warning' : 'info'
-                  }, ...prev.slice(0, 9)]);
+                  }, ...prev.slice(0, 19)]);
                 }}
                 className={`rounded-lg py-2.5 text-xs font-bold uppercase tracking-wider transition-all ${
                   armedMode === modeKey
@@ -2920,133 +3142,148 @@ function SmartHomeSecurityDashboard({ mode, device }: { mode: 'test' | 'service'
             ))}
           </div>
 
-          <div className="border-t border-white/5 pt-4 space-y-3">
-            <div className="flex items-center justify-between text-xs">
-              <span className="text-slate-400">PIR Infrared Sensitivity</span>
-              <span className="font-mono text-cyan-300 uppercase">{pirSensitivity}</span>
-            </div>
-            <div className="grid grid-cols-3 gap-1.5">
-              {(['low', 'medium', 'high'] as const).map(level => (
-                <button
-                  key={level}
-                  type="button"
-                  onClick={() => setPirSensitivity(level)}
-                  className={`rounded border px-2 py-1 text-[11px] font-semibold uppercase ${
-                    pirSensitivity === level
-                      ? 'border-cyan-400 bg-cyan-400/20 text-cyan-200'
-                      : 'border-slate-800 text-slate-500 hover:text-slate-300'
-                  }`}
-                >
-                  {level}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          <div className="border-t border-white/5 pt-3">
-            <label className="flex items-center justify-between text-xs text-slate-300 cursor-pointer">
-              <span>Auto-simulate periodic motion (8s)</span>
-              <input
-                type="checkbox"
-                checked={autoSimulate}
-                onChange={e => setAutoSimulate(e.target.checked)}
-                className="h-4 w-4 rounded border-slate-700 bg-slate-900 text-cyan-500 focus:ring-cyan-400"
-              />
-            </label>
+          <div className="pt-3 border-t border-white/5 space-y-2">
+            <button
+              type="button"
+              onClick={() => setShowSerialConsole(prev => !prev)}
+              className="w-full inline-flex items-center justify-between text-xs text-cyan-400 hover:text-cyan-300 p-2 rounded-lg bg-slate-900 border border-slate-800"
+            >
+              <span className="flex items-center gap-1.5 font-bold">
+                <Terminal className="h-3.5 w-3.5" />
+                {showSerialConsole ? 'Hide Serial Console' : 'Show Live ESP32 Serial Console'}
+              </span>
+              <span className="font-mono text-[10px] bg-slate-800 px-2 py-0.5 rounded text-slate-300">
+                {serialLogs.length} lines
+              </span>
+            </button>
           </div>
         </div>
 
-        {/* Audio Buzzer Engine Status */}
+        {/* Live Hardware Integration Hub */}
         <div className="rounded-xl border border-white/10 bg-slate-950/50 p-5 space-y-4">
           <div className="flex items-center justify-between">
             <h3 className="flex items-center gap-2 text-sm font-bold uppercase tracking-wider text-slate-300">
-              <Radio className="h-4 w-4 text-cyan-400" />
-              Buzzer Sound Generator
+              <Cpu className="h-4 w-4 text-cyan-400" />
+              ESP32 Hardware Hub
             </h3>
             <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-bold uppercase ${
-              isAlarmActive && !soundMuted ? 'bg-amber-400/20 text-amber-300 animate-pulse' : 'bg-slate-800 text-slate-400'
+              hardwareConnected ? 'bg-emerald-500/20 text-emerald-300' : 'bg-slate-800 text-slate-400'
             }`}>
-              {isAlarmActive && !soundMuted ? 'Sounding' : 'Idle'}
+              {hardwareConnected ? 'Linked' : 'Offline'}
             </span>
           </div>
 
           <p className="text-xs text-slate-400">
-            Synthesizes a 165Hz electronic security buzzer with 10Hz square-wave gating via the native Web Audio API.
+            Plug your ESP32 into USB to stream real telemetry directly into this dashboard with 0ms latency.
+          </p>
+
+          <div className="space-y-2">
+            <button
+              type="button"
+              onClick={connectWebSerial}
+              disabled={serialBusy}
+              className="w-full inline-flex items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 px-4 py-2.5 text-xs font-bold uppercase tracking-wider text-black hover:opacity-90 transition-all shadow-md shadow-cyan-500/20 disabled:opacity-50"
+            >
+              <Cpu className="h-4 w-4" />
+              {connectionType === 'serial' ? 'Reconnect USB Serial' : 'Connect ESP32 (USB Cable)'}
+            </button>
+
+            <button
+              type="button"
+              onClick={() => void sendSerialCommand('TEST_BUZZER')}
+              className="w-full inline-flex items-center justify-center gap-2 rounded-xl border border-slate-700 bg-slate-900 px-4 py-2 text-xs font-bold text-amber-300 hover:border-amber-400 transition-all"
+            >
+              <Volume2 className="h-4 w-4 text-amber-400" />
+              Pulse Physical Buzzer (GPIO 4)
+            </button>
+
+            <button
+              type="button"
+              onClick={() => void sendSerialCommand('DIAL_TEST')}
+              className="w-full inline-flex items-center justify-center gap-2 rounded-xl border border-slate-700 bg-slate-900 px-4 py-2 text-xs font-bold text-purple-300 hover:border-purple-400 transition-all"
+            >
+              <PhoneCall className="h-4 w-4 text-purple-400" />
+              Test Emergency Call (+233 256905290)
+            </button>
+          </div>
+        </div>
+
+        {/* Emergency Call Profile */}
+        <div className="rounded-xl border border-white/10 bg-slate-950/50 p-5 space-y-4">
+          <div className="flex items-center justify-between">
+            <h3 className="flex items-center gap-2 text-sm font-bold uppercase tracking-wider text-slate-300">
+              <PhoneCall className="h-4 w-4 text-emerald-400" />
+              SIM800L Emergency Dialer
+            </h3>
+            <span className="text-[10px] font-mono text-cyan-300 bg-cyan-500/10 px-2 py-0.5 rounded font-bold">
+              Cellular GSM
+            </span>
+          </div>
+
+          <p className="text-xs text-slate-400">
+            Whenever physical motion trips the HC-SR501 PIR sensor, the SIM800L cellular engine dials this destination phone number.
           </p>
 
           <div className="rounded-lg border border-slate-800 bg-slate-900/80 p-3 space-y-2 text-xs">
             <div className="flex justify-between">
-              <span className="text-slate-400">Audio Synthesis</span>
-              <span className="font-mono text-cyan-300">Sawtooth 165Hz + 330Hz</span>
+              <span className="text-slate-400">Target Phone:</span>
+              <span className="font-mono font-bold text-yellow-300">{emergencyPhone}</span>
             </div>
             <div className="flex justify-between">
-              <span className="text-slate-400">LFO Pulse Gating</span>
-              <span className="font-mono text-cyan-300">10 Hz Fast Pulse</span>
+              <span className="text-slate-400">Account:</span>
+              <span className="font-bold text-white">Zumah Kelvin / GKB</span>
             </div>
             <div className="flex justify-between">
-              <span className="text-slate-400">Acoustic Filter</span>
-              <span className="font-mono text-cyan-300">Lowpass 1200Hz Q:1.5</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-slate-400">Alarm Audio Output</span>
-              <span className={`font-mono font-bold ${soundMuted ? 'text-amber-300' : 'text-emerald-300'}`}>
-                {soundMuted ? 'MUTED' : isAlarmActive ? 'ACTIVE (BUZZING)' : 'READY'}
-              </span>
+              <span className="text-slate-400">Cooldown:</span>
+              <span className="font-mono text-cyan-300">30 seconds</span>
             </div>
           </div>
 
           <button
             type="button"
-            onClick={toggleSound}
-            className={`w-full flex items-center justify-center gap-2 rounded-lg py-2.5 text-xs font-bold uppercase tracking-wider transition-all ${
-              soundMuted
-                ? 'border border-amber-500/40 bg-amber-500/10 text-amber-200 hover:bg-amber-500/20'
-                : 'border border-cyan-500/40 bg-cyan-500/10 text-cyan-300 hover:bg-cyan-500/20'
-            }`}
+            onClick={() => setShowFirmwareModal(true)}
+            className="w-full inline-flex items-center justify-center gap-2 rounded-xl border border-cyan-500/40 bg-cyan-500/10 px-4 py-2.5 text-xs font-bold text-cyan-300 hover:bg-cyan-500/20 transition-all"
           >
-            {soundMuted ? <VolumeX className="h-4 w-4" /> : <Volume2 className="h-4 w-4" />}
-            {soundMuted ? 'Unmute Electronic Buzzer' : 'Mute Buzzer Audio'}
+            <Code className="h-4 w-4" /> Download Production ESP32 Code
           </button>
-        </div>
-
-        {/* Hardware Gateway & Telemetry */}
-        <div className="rounded-xl border border-white/10 bg-slate-950/50 p-5 space-y-4">
-          <h3 className="flex items-center gap-2 text-sm font-bold uppercase tracking-wider text-slate-300">
-            <Cpu className="h-4 w-4 text-purple-400" />
-            Hardware Node Specs
-          </h3>
-          <div className="space-y-2 text-xs">
-            <div className="flex justify-between rounded-lg border border-slate-800 bg-slate-900/60 p-2.5">
-              <span className="text-slate-400">Microcontroller</span>
-              <span className="font-mono text-white">ESP32-WROOM-32D</span>
-            </div>
-            <div className="flex justify-between rounded-lg border border-slate-800 bg-slate-900/60 p-2.5">
-              <span className="text-slate-400">PIR Motion Sensor</span>
-              <span className="font-mono text-white">HC-SR501 Pyroelectric</span>
-            </div>
-            <div className="flex justify-between rounded-lg border border-slate-800 bg-slate-900/60 p-2.5">
-              <span className="text-slate-400">IR Voltage Delta</span>
-              <span className={`font-mono font-bold ${motionDetected ? 'text-red-400' : 'text-emerald-400'}`}>
-                {motionDetected ? '3.82V (Trip High)' : '0.14V (Baseline)'}
-              </span>
-            </div>
-            <div className="flex justify-between rounded-lg border border-slate-800 bg-slate-900/60 p-2.5">
-              <span className="text-slate-400">Backup Battery</span>
-              <span className="font-mono text-emerald-400">99% · AC Online</span>
-            </div>
-          </div>
-          <p className="text-[11px] leading-relaxed text-slate-400">
-            Simulated demonstration. In production, PIR pins trigger ESP32 hardware interrupts to notify the GKB Cloud Gateway over encrypted MQTT.
-          </p>
         </div>
       </div>
 
-      {/* Live Security Event History */}
-      <div className="rounded-xl border border-white/10 bg-slate-950/50 p-4 sm:p-5">
-        <div className="mb-3 flex items-center justify-between">
+      {/* Live Serial Console Monitor (Collapsible) */}
+      {showSerialConsole && (
+        <div className="rounded-2xl border border-cyan-500/40 bg-black/90 p-4 space-y-2 font-mono text-xs animate-fadeIn">
+          <div className="flex items-center justify-between border-b border-slate-800 pb-2">
+            <span className="text-cyan-400 font-bold flex items-center gap-2">
+              <Terminal className="h-4 w-4" /> Live ESP32 Hardware Serial Monitor (115200 Baud)
+            </span>
+            <button
+              type="button"
+              onClick={() => setSerialLogs([])}
+              className="text-[10px] text-slate-500 hover:text-white"
+            >
+              Clear Console
+            </button>
+          </div>
+          <div className="max-h-48 overflow-y-auto space-y-1 text-slate-300 text-[11px]">
+            {serialLogs.length === 0 ? (
+              <p className="text-slate-600 italic">No serial data received yet. Click "Connect via USB" to begin streaming live hardware telemetry.</p>
+            ) : (
+              serialLogs.map((log, idx) => (
+                <div key={idx} className="whitespace-pre-wrap break-all">
+                  {log}
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Event & Intrusion Audit Log */}
+      <div className="rounded-xl border border-white/10 bg-slate-950/50 p-5 space-y-4">
+        <div className="flex items-center justify-between">
           <h3 className="flex items-center gap-2 text-sm font-bold uppercase tracking-wider text-slate-300">
-            <Clock3 className="h-4 w-4 text-cyan-400" />
-            Intrusion & Motion Event Log
+            <Activity className="h-4 w-4 text-cyan-400" />
+            Hardware Intrusion Log (Live)
           </h3>
           <button
             type="button"
@@ -3082,42 +3319,14 @@ function SmartHomeSecurityDashboard({ mode, device }: { mode: 'test' | 'service'
         </div>
       </div>
 
-      {/* ESP32 Firmware & Hardware Integration Card */}
-      <div className="rounded-2xl border border-cyan-500/40 bg-gradient-to-r from-slate-900 via-slate-900/90 to-slate-950 p-6 backdrop-blur-xl shadow-xl space-y-4">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-          <div className="space-y-1">
-            <span className="inline-flex items-center gap-1.5 rounded-full border border-cyan-400/40 bg-cyan-400/10 px-3 py-1 text-xs font-bold uppercase tracking-wider text-cyan-300">
-              <Cpu className="h-3.5 w-3.5" /> ESP32 Hardware Integration
-            </span>
-            <h3 className="text-xl font-bold text-white">ESP32 + SIM800L Intrusion Dialer Firmware</h3>
-            <p className="text-xs text-slate-300 max-w-xl">
-              Production C++ sketch configured for secret key <strong className="text-cyan-300 font-mono">{activeKey}</strong>. Automatically triggers piezo buzzer and dials <strong className="text-yellow-300 font-mono">{emergencyPhone}</strong> when motion is detected.
-            </p>
-          </div>
-          <button
-            type="button"
-            onClick={() => setShowFirmwareModal(true)}
-            className="inline-flex items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-cyan-500 to-purple-600 px-5 py-3 text-xs font-bold uppercase tracking-wider text-black shadow-lg shadow-cyan-500/25 hover:scale-105 transition-all cursor-pointer whitespace-nowrap"
-          >
-            <Code className="h-4 w-4" />
-            View & Download ESP32 Code
-          </button>
-        </div>
-      </div>
-
-      {/* Safety Notice */}
-      <p role="status" className="rounded-xl border border-amber-500/20 bg-amber-500/5 px-4 py-3 text-xs leading-relaxed text-amber-200">
-        Smart Home Security preview: PIR sensor telemetry, zone breach triggers, blinking red background strobe, and buzzing sound are active in this demonstration. Physical sirens, CCTV cameras, and SMS relays operate in hardware firmware upon installation.
-      </p>
-
       {/* Firmware Modal */}
       {showFirmwareModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-md p-4 overflow-y-auto">
           <div className="w-full max-w-4xl rounded-2xl border border-cyan-500/40 bg-slate-900 p-6 sm:p-8 shadow-[0_0_60px_rgba(6,182,212,0.3)] space-y-5 animate-scaleUp max-h-[90vh] flex flex-col">
             <div className="flex items-center justify-between border-b border-slate-800 pb-4">
               <div className="space-y-1">
-                <span className="text-xs font-bold uppercase tracking-wider text-cyan-400">ESP32 Arduino Firmware</span>
-                <h3 className="text-xl font-black text-white">SIM800L + PIR Motion Emergency Dialer</h3>
+                <span className="text-xs font-bold uppercase tracking-wider text-cyan-400">ESP32 Arduino Firmware (Zero Simulation)</span>
+                <h3 className="text-xl font-black text-white">HC-SR501 PIR + SIM800L Emergency Dialer</h3>
               </div>
               <button
                 type="button"
@@ -3131,7 +3340,7 @@ function SmartHomeSecurityDashboard({ mode, device }: { mode: 'test' | 'service'
             {/* Quick Settings Bar */}
             <div className="grid gap-4 sm:grid-cols-2 bg-slate-950 p-4 rounded-xl border border-slate-800 text-xs">
               <label className="text-slate-400">
-                Secret Device Key:
+                Secret Hardware Key:
                 <input
                   type="text"
                   value={activeKey}
@@ -3139,107 +3348,58 @@ function SmartHomeSecurityDashboard({ mode, device }: { mode: 'test' | 'service'
                   className="mt-1 w-full rounded-lg border border-slate-800 bg-slate-900 px-3 py-2 font-mono font-bold text-cyan-300"
                 />
               </label>
+
               <label className="text-slate-400">
-                Target Emergency Phone Number:
+                Destination Phone Number:
                 <input
                   type="text"
                   value={emergencyPhone}
                   onChange={e => setEmergencyPhone(e.target.value)}
-                  className="mt-1 w-full rounded-lg border border-slate-800 bg-slate-900 px-3 py-2 font-mono font-bold text-yellow-300 focus:border-cyan-400 focus:outline-none"
+                  className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 font-mono font-bold text-yellow-300 focus:border-cyan-400 focus:outline-none"
                 />
               </label>
             </div>
 
-            {/* Wiring Table */}
-            <div className="overflow-x-auto text-xs bg-slate-950/80 rounded-xl border border-slate-800 p-3">
-              <p className="font-bold text-slate-300 mb-2 uppercase text-[11px] tracking-wider text-cyan-400">⚡ Hardware Wiring Pinout (ESP32 DevKit):</p>
-              <table className="w-full text-left border-collapse">
-                <thead>
-                  <tr className="border-b border-slate-800 text-slate-400 text-[10px] uppercase">
-                    <th className="py-1.5 px-2">Component</th>
-                    <th className="py-1.5 px-2">Pin Label</th>
-                    <th className="py-1.5 px-2">ESP32 GPIO Pin</th>
-                    <th className="py-1.5 px-2">Notes</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-900 font-mono text-[11px] text-slate-300">
-                  <tr>
-                    <td className="py-1.5 px-2 text-white font-bold">PIR Sensor</td>
-                    <td className="py-1.5 px-2 text-cyan-300">OUT</td>
-                    <td className="py-1.5 px-2 text-yellow-300">GPIO 15</td>
-                    <td className="py-1.5 px-2 text-slate-400">VCC to 5V, GND to GND</td>
-                  </tr>
-                  <tr>
-                    <td className="py-1.5 px-2 text-white font-bold">SIM800L GSM</td>
-                    <td className="py-1.5 px-2 text-cyan-300">TXD</td>
-                    <td className="py-1.5 px-2 text-yellow-300">GPIO 16 (RX2)</td>
-                    <td className="py-1.5 px-2 text-slate-400">Connect to ESP32 Hardware UART2 RX</td>
-                  </tr>
-                  <tr>
-                    <td className="py-1.5 px-2 text-white font-bold">SIM800L GSM</td>
-                    <td className="py-1.5 px-2 text-cyan-300">RXD</td>
-                    <td className="py-1.5 px-2 text-yellow-300">GPIO 17 (TX2)</td>
-                    <td className="py-1.5 px-2 text-slate-400">Connect to ESP32 Hardware UART2 TX</td>
-                  </tr>
-                  <tr>
-                    <td className="py-1.5 px-2 text-white font-bold">Piezo Buzzer</td>
-                    <td className="py-1.5 px-2 text-cyan-300">Positive (+)</td>
-                    <td className="py-1.5 px-2 text-yellow-300">GPIO 4</td>
-                    <td className="py-1.5 px-2 text-slate-400">Negative (-) to GND</td>
-                  </tr>
-                  <tr>
-                    <td className="py-1.5 px-2 text-white font-bold">Alarm LED</td>
-                    <td className="py-1.5 px-2 text-cyan-300">Anode (+)</td>
-                    <td className="py-1.5 px-2 text-yellow-300">GPIO 2</td>
-                    <td className="py-1.5 px-2 text-slate-400">Onboard LED or external red LED</td>
-                  </tr>
-                </tbody>
-              </table>
+            {/* Code Box */}
+            <div className="relative flex-1 overflow-hidden rounded-xl border border-slate-800 bg-slate-950">
+              <div className="flex items-center justify-between border-b border-slate-800 px-4 py-2 bg-slate-900/50">
+                <span className="font-mono text-xs text-slate-400">GKB_ESP32_Security_GKB-SEC-0001.ino</span>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      navigator.clipboard.writeText(generateArduinoCode(activeKey, emergencyPhone));
+                      setCopiedCode(true);
+                      setTimeout(() => setCopiedCode(false), 2500);
+                    }}
+                    className="inline-flex items-center gap-1.5 rounded-lg border border-slate-700 bg-slate-800 px-3 py-1 text-xs font-bold text-slate-300 hover:text-white hover:border-slate-500 transition-colors"
+                  >
+                    {copiedCode ? <Check className="h-3.5 w-3.5 text-emerald-400" /> : <Copy className="h-3.5 w-3.5" />}
+                    <span>{copiedCode ? 'Copied to Clipboard!' : 'Copy Sketch'}</span>
+                  </button>
+
+                  <a
+                    href={`data:text/plain;charset=utf-8,${encodeURIComponent(generateArduinoCode(activeKey, emergencyPhone))}`}
+                    download="GKB_ESP32_Security_GKB-SEC-0001.ino"
+                    className="inline-flex items-center gap-1.5 rounded-lg bg-cyan-500/20 border border-cyan-500/40 px-3 py-1 text-xs font-bold text-cyan-300 hover:bg-cyan-500/30 transition-colors"
+                  >
+                    <Download className="h-3.5 w-3.5" />
+                    <span>Download .ino</span>
+                  </a>
+                </div>
+              </div>
+              <pre className="h-[400px] overflow-auto p-4 font-mono text-xs leading-relaxed text-cyan-200/90 selection:bg-cyan-500 selection:text-black">
+                {generateArduinoCode(activeKey, emergencyPhone)}
+              </pre>
             </div>
 
-            {/* Code container */}
-            <div className="flex-1 overflow-y-auto bg-slate-950 p-4 rounded-xl border border-slate-800 font-mono text-xs text-cyan-300/90 whitespace-pre leading-relaxed select-all max-h-60">
-              {generateArduinoCode(activeKey, emergencyPhone)}
-            </div>
-
-            {/* Actions */}
-            <div className="flex flex-wrap items-center justify-between gap-3 pt-2 border-t border-slate-800">
-              <button
-                type="button"
-                onClick={() => {
-                  navigator.clipboard.writeText(generateArduinoCode(activeKey, emergencyPhone));
-                  setCopiedCode(true);
-                  setTimeout(() => setCopiedCode(false), 2500);
-                }}
-                className="inline-flex items-center gap-2 rounded-xl bg-cyan-500 px-5 py-2.5 text-xs font-bold uppercase tracking-wider text-black hover:bg-cyan-400 transition-colors cursor-pointer"
-              >
-                {copiedCode ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
-                {copiedCode ? 'Copied to Clipboard!' : 'Copy Code'}
-              </button>
-
-              <button
-                type="button"
-                onClick={() => {
-                  const blob = new Blob([generateArduinoCode(activeKey, emergencyPhone)], { type: 'text/plain' });
-                  const url = URL.createObjectURL(blob);
-                  const a = document.createElement('a');
-                  a.href = url;
-                  a.download = `GKB_ESP32_Security_${activeKey}.ino`;
-                  a.click();
-                  URL.revokeObjectURL(url);
-                }}
-                className="inline-flex items-center gap-2 rounded-xl border border-purple-500/40 bg-purple-500/10 px-5 py-2.5 text-xs font-bold uppercase tracking-wider text-purple-300 hover:bg-purple-500/20 transition-colors cursor-pointer"
-              >
-                <Download className="h-4 w-4" />
-                Download .INO Sketch
-              </button>
-
+            <div className="flex justify-end pt-2">
               <button
                 type="button"
                 onClick={() => setShowFirmwareModal(false)}
-                className="text-xs text-slate-400 hover:text-white px-3 py-2 cursor-pointer"
+                className="px-5 py-2.5 rounded-xl bg-slate-800 text-slate-200 hover:bg-slate-700 text-xs font-bold uppercase tracking-wider cursor-pointer"
               >
-                Close
+                Done
               </button>
             </div>
           </div>
