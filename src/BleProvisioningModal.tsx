@@ -22,7 +22,7 @@ export default function BleProvisioningModal({
   isOpen,
   onClose,
   onDeviceProvisioned,
-  initialDeviceKey = 'GKB-SEC-0001',
+  initialDeviceKey = 'GKB-RELAY-0001',
   initialShowLabel = false
 }: BleProvisioningModalProps) {
   // Modal Step State: 'ble_connect' -> 'qr_verify' -> 'wifi_config' -> 'complete'
@@ -447,7 +447,7 @@ export default function BleProvisioningModal({
               </span>
               <h4 className="text-base font-bold text-white">Step 2: Verify Device Casing QR Code</h4>
               <p className="text-xs text-slate-300">
-                Scan the physical QR code sticker on the ESP32 casing with your camera, or confirm the key below (<strong className="text-cyan-300 font-mono">GKB-SEC-0001</strong>). The app will pass it over BLE for local authentication.
+                Scan the physical QR code sticker on the ESP32 casing with your camera, or confirm the key below (<strong className="text-cyan-300 font-mono">{initialDeviceKey || 'GKB-RELAY-0001'}</strong>). The app will pass it over BLE for local authentication.
               </p>
             </div>
 
@@ -488,7 +488,7 @@ export default function BleProvisioningModal({
                     type="text"
                     value={deviceKeyInput}
                     onChange={e => setDeviceKeyInput(e.target.value)}
-                    placeholder="e.g. GKB-SEC-0001"
+                    placeholder="e.g. GKB-RELAY-0001"
                     className="flex-1 rounded-xl border border-slate-700 bg-slate-950 px-4 py-2.5 font-mono text-sm text-white focus:border-cyan-400 focus:outline-none uppercase"
                     required
                   />
@@ -507,7 +507,7 @@ export default function BleProvisioningModal({
               <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-slate-400 pt-1">
                 <span className="text-[11px]">Quick Tokens:</span>
                 <div className="flex flex-wrap items-center gap-1.5">
-                  {initialDeviceKey && initialDeviceKey !== 'GKB-SEC-0001' && (
+                  {initialDeviceKey && (
                     <button
                       type="button"
                       onClick={() => {
@@ -519,9 +519,26 @@ export default function BleProvisioningModal({
                           sendKeyVerification(initialDeviceKey);
                         }
                       }}
-                      className="px-2.5 py-1 rounded-lg bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 font-mono text-[11px] font-bold border border-amber-500/30 cursor-pointer"
+                      className="px-2.5 py-1 rounded-lg bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-300 font-mono text-[11px] font-bold border border-cyan-500/30 cursor-pointer"
                     >
                       {initialDeviceKey}
+                    </button>
+                  )}
+                  {initialDeviceKey !== 'GKB-RELAY-0001' && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setDeviceKeyInput('GKB-RELAY-0001');
+                        if (!rxChar) {
+                          setStep('wifi_config');
+                          addLog('✅ Verified token GKB-RELAY-0001 (Simulated).');
+                        } else {
+                          sendKeyVerification('GKB-RELAY-0001');
+                        }
+                      }}
+                      className="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 font-mono text-[11px] font-bold border border-slate-700 cursor-pointer"
+                    >
+                      GKB-RELAY-0001
                     </button>
                   )}
                   <button
@@ -535,9 +552,9 @@ export default function BleProvisioningModal({
                         sendKeyVerification('GKB-SEC-0001');
                       }
                     }}
-                    className="px-2.5 py-1 rounded-lg bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-300 font-mono text-[11px] font-bold border border-cyan-500/30 cursor-pointer"
+                    className="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-400 font-mono text-[11px] font-bold border border-slate-700 cursor-pointer"
                   >
-                    GKB-SEC-0001 (Pilot Re-use)
+                    GKB-SEC-0001 (Legacy)
                   </button>
                 </div>
               </div>
@@ -550,18 +567,30 @@ export default function BleProvisioningModal({
                   <span>{verifyError}</span>
                 </div>
                 {(verifyError.includes('mismatch') || verifyError.includes('failed') || verifyError.includes('Authentication failed')) && (
-                  <div className="border-t border-red-500/20 pt-2 flex items-center justify-between">
-                    <span className="text-[11px] text-slate-300">Reusing hardware from Single Relay Pilot?</span>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setDeviceKeyInput('GKB-SEC-0001');
-                        void sendKeyVerification('GKB-SEC-0001');
-                      }}
-                      className="px-2 py-0.5 rounded bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-300 font-mono text-[11px] font-bold border border-cyan-500/40 cursor-pointer"
-                    >
-                      Try GKB-SEC-0001
-                    </button>
+                  <div className="border-t border-red-500/20 pt-2 flex flex-wrap items-center justify-between gap-2">
+                    <span className="text-[11px] text-slate-300">Casing token mismatch? Try standard keys:</span>
+                    <div className="flex gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setDeviceKeyInput('GKB-RELAY-0001');
+                          void sendKeyVerification('GKB-RELAY-0001');
+                        }}
+                        className="px-2 py-0.5 rounded bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-300 font-mono text-[11px] font-bold border border-cyan-500/40 cursor-pointer"
+                      >
+                        GKB-RELAY-0001
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setDeviceKeyInput('GKB-SEC-0001');
+                          void sendKeyVerification('GKB-SEC-0001');
+                        }}
+                        className="px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 font-mono text-[11px] font-bold border border-slate-700 cursor-pointer"
+                      >
+                        GKB-SEC-0001
+                      </button>
+                    </div>
                   </div>
                 )}
               </div>
