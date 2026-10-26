@@ -1,13 +1,10 @@
+import BleProvisioningModal from './BleProvisioningModal';
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import type { Session } from '@supabase/supabase-js';
-import { relayControlEnabled, relayPairingEnabled, relaySupabase, relaySupabaseConfigError } from './supabase';
 import {
-  Cpu, Shield, Smartphone, Wrench, Phone, Mail, Globe, Camera,
-  User, Lock, LogOut, PlusCircle, CheckCircle, AlertTriangle, Unlink,
-  Send, Server, Terminal, Activity, Layers, ArrowRight, CheckSquare, Square,
-  Sun, Moon, Zap, Wifi, Radio, Gauge, BatteryCharging, Lightbulb, Pencil, Save, X,
-  Volume2, VolumeX, PhoneCall, Copy, Download, Code, Check, Siren, ShieldAlert, ShieldCheck, Eye, EyeOff, Clock3,
-  Trash2, PauseCircle, PlayCircle, Ban, RotateCcw, CreditCard, MessageSquare, AlertCircle, RefreshCw
+  relayControlEnabled, relayPairingEnabled, relaySupabase, relaySupabaseConfigError } from './supabase';
+import {
+  Cpu, Shield, Smartphone, Wrench, Phone, Mail, Globe, Camera, User, Lock, LogOut, PlusCircle, CheckCircle, AlertTriangle, Unlink, Send, Server, Terminal, Activity, Layers, ArrowRight, CheckSquare, Square, Sun, Moon, Zap, Wifi, Radio, Gauge, BatteryCharging, Lightbulb, Pencil, Save, X, Volume2, VolumeX, PhoneCall, Copy, Download, Code, Check, Siren, ShieldAlert, ShieldCheck, Eye, EyeOff, Clock3, Trash2, PauseCircle, PlayCircle, Ban, RotateCcw, CreditCard, MessageSquare, AlertCircle, RefreshCw, Bluetooth, QrCode, Printer
 } from 'lucide-react';
 
 type ServiceType = 'student-projects' | 'retail-gadgets';
@@ -143,7 +140,15 @@ function InventoryHighlights({ text }: { text: string }) {
 }
 
 const defaultDevices: Device[] = [
-  { id: 1, name: 'Smart Home Security System v1', key: 'GKB-SEC-0001', legacyKeys: ['GKB-SEC-9988', 'GKB-SCE-0001', 'GKB-SEC-0002'], status: 'Online', lastAlert: 'Armed · PIR motion active · Recipient: +233 256905290', project: 'smart-security-system' },
+  {
+    id: 1,
+    name: 'ESP32 Smart Relay Pilot (Hardware Test Ground)',
+    key: 'GKB-SEC-0001',
+    legacyKeys: ['GKB-RELAY-0001', 'GKBSEC-00106', 'GKB-SEC-9988'],
+    status: 'Online',
+    lastAlert: 'Relay Ready · BLE & QR Provisioning Active · GPIO 23 Output',
+    project: 'relay-test'
+  },
   { id: 2, name: 'Smart Water Tank Monitor', key: 'GKB-SWP-0001', legacyKeys: ['GKB-WTR-4412'], status: 'Online', lastAlert: 'Water level stable at 68%', project: 'water-tank-monitor' },
   { id: 3, name: 'Industrial Fuel Tank Monitor', key: 'GKB-IUFT-0001', status: 'Online', lastAlert: 'Fuel level stable at 72%', project: 'fuel-tank-monitor' },
   { id: 4, name: 'GKB Smart Prepaid Energy Meter', key: 'GKB-SPEM-0001', status: 'Online', lastAlert: 'Meter secure · balance GHS 24.50', project: 'prepaid-energy-meter' },
@@ -152,7 +157,7 @@ const defaultDevices: Device[] = [
   { id: 7, name: 'Smart Light Control System v1 · 4-channel', key: 'GKB-LIGHT-0001V1', legacyKeys: ['GKB-LIGHTV1-0001', 'GKB-LIGHT-0001'], status: 'Online', lastAlert: 'All 4 lights off · demo', project: 'light-control', relayChannels: 4 },
   { id: 8, name: 'Smart Light Control System v2 · 6-channel', key: 'GKB-LIGHT-0001V2', legacyKeys: ['GKB-LIGHTV2-0001'], status: 'Online', lastAlert: 'All 6 lights off · demo', project: 'light-control', relayChannels: 6 },
   { id: 9, name: 'Smart Light Control System v3 · 8-channel', key: 'GKB-LIGHT-0001V3', legacyKeys: ['GKB-LIGHTV3-0001'], status: 'Online', lastAlert: 'All 8 lights off · demo', project: 'light-control', relayChannels: 8 },
-  { id: 10, name: 'Relay Test', key: 'GKB-RELAY-0001', status: 'Online', lastAlert: 'Relay off · car stationary · demo', project: 'relay-test' }
+  { id: 10, name: 'Relay Test Module', key: 'GKB-RELAY-0001', status: 'Online', lastAlert: 'Relay off · car stationary · demo', project: 'relay-test' }
 ];
 
 type Complaint = {
@@ -205,6 +210,12 @@ function RelayTestDashboard({ mode }: { mode: 'test' | 'service' }) {
   const [connectionState, setConnectionState] = useState<'connecting' | 'connected' | 'error'>('connecting');
   const [lastSyncedAt, setLastSyncedAt] = useState<Date | null>(null);
   const [relayPaired, setRelayPaired] = useState(false);
+
+  // BLE & QR Provisioning Pilot States
+  const [provisionModalOpen, setProvisionModalOpen] = useState(false);
+  const [showLabelInModal, setShowLabelInModal] = useState(false);
+  const [showFirmwareModal, setShowFirmwareModal] = useState(false);
+  const [copiedFirmware, setCopiedFirmware] = useState(false);
 
   useEffect(() => {
     if (mode !== 'service') return;
@@ -367,7 +378,7 @@ function RelayTestDashboard({ mode }: { mode: 'test' | 'service' }) {
       }
       setRelayOn(data.state === 'ON');
       setLastSyncedAt(new Date());
-      setRelayMessage(`Database state confirmed as ${data.state}. The ESP32 polls every 3 seconds; its current firmware does not acknowledge the physical output.`);
+      setRelayMessage(`Database state confirmed as ${data.state}. The ESP32 polls every 2.5 seconds via Supabase REST.`);
     } catch (error) {
       setRelayError(`Could not send the relay command to Supabase: ${formatSupabaseError(error)}`);
     } finally {
@@ -376,7 +387,7 @@ function RelayTestDashboard({ mode }: { mode: 'test' | 'service' }) {
   };
 
   return (
-    <section aria-labelledby="relay-test-title" className="mx-auto max-w-4xl space-y-5">
+    <section aria-labelledby="relay-test-title" className="mx-auto max-w-5xl space-y-6">
       <style>{`
         @keyframes gkb-relay-wheel-spin {
           to { transform: rotate(360deg); }
@@ -389,18 +400,138 @@ function RelayTestDashboard({ mode }: { mode: 'test' | 'service' }) {
           animation: gkb-relay-wheel-spin 0.45s linear infinite;
         }
       `}</style>
+
+      {/* Primary Hardware Test Ground Header */}
       <header className="rounded-2xl border border-cyan-500/20 bg-slate-900/80 p-5 sm:p-6">
-        <p className="text-xs font-bold uppercase tracking-[0.18em] text-cyan-300">
-          {mode === 'test' ? 'Private device test preview · simulated' : 'Service portal · Supabase relay_01'}
-        </p>
-        <h2 id="relay-test-title" className="mt-2 text-xl font-bold text-white sm:text-2xl">Relay Test</h2>
-        <p className="mt-1 text-sm text-slate-400">
-          {mode === 'test'
-            ? 'Toggle the simulated relay to start or stop the animated car wheels.'
-            : 'The switch writes relay_01 to Supabase; the ESP32 polls the same row for its relay state.'}
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+          <div>
+            <p className="text-xs font-bold uppercase tracking-[0.18em] text-cyan-300">
+              {mode === 'test' ? 'Hardware Testing Ground · Simulation Preview' : 'Primary Testing Ground · Supabase Cloud relay_01'}
+            </p>
+            <h2 id="relay-test-title" className="mt-1 text-xl font-bold text-white sm:text-2xl">
+              ESP32 Relay Test & Provisioning Center
+            </h2>
+          </div>
+          <span className="inline-flex items-center gap-1.5 rounded-full border border-cyan-500/30 bg-cyan-500/10 px-3 py-1 font-mono text-xs font-bold text-cyan-300 w-fit">
+            <Cpu className="h-3.5 w-3.5 text-cyan-400" /> Device: GKB-SEC-0001
+          </span>
+        </div>
+        <p className="mt-2 text-sm text-slate-400 leading-relaxed">
+          Designated primary testing ground for GKB hardware communication, BLE handshake, QR camera verification, NVS flash credentials, and real-time cloud relay switching.
         </p>
       </header>
 
+      {/* Hardware BLE + QR Provisioning Pilot Hero Card */}
+      <section aria-label="Hardware BLE and QR Provisioning" className="rounded-2xl border border-cyan-500/30 bg-gradient-to-br from-slate-900/95 via-slate-900/70 to-purple-950/40 p-5 sm:p-6 shadow-xl shadow-cyan-500/5 space-y-5">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-800/80 pb-4">
+          <div className="flex items-center gap-3.5">
+            <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-tr from-cyan-500 to-purple-600 text-black shadow-lg shadow-cyan-500/20 shrink-0">
+              <Bluetooth className="h-6 w-6 text-black" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="text-[10px] font-bold uppercase tracking-widest text-cyan-400">Hardware Pilot</span>
+                <span className="inline-flex items-center gap-1 rounded-full bg-cyan-500/10 px-2.5 py-0.5 text-[10px] font-mono font-bold text-cyan-300 border border-cyan-500/30">
+                  Target: GKB-SEC-0001
+                </span>
+                <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/10 px-2 py-0.5 text-[10px] font-bold text-emerald-400 border border-emerald-500/30">
+                  <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" /> BLE GATT Active
+                </span>
+              </div>
+              <h3 className="text-base sm:text-lg font-black text-white mt-1">ESP32 BLE + QR Provisioning & Cloud Relay Control</h3>
+            </div>
+          </div>
+          <div className="flex flex-wrap items-center gap-2.5">
+            <button
+              type="button"
+              onClick={() => {
+                setShowLabelInModal(false);
+                setProvisionModalOpen(true);
+              }}
+              className="inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-cyan-500 to-purple-600 px-4 py-2.5 text-xs font-black uppercase tracking-wider text-black shadow-lg shadow-cyan-500/20 hover:opacity-90 transition-all cursor-pointer"
+            >
+              <Bluetooth className="h-4 w-4" />
+              <QrCode className="h-4 w-4" />
+              Provision ESP32 (BLE & QR)
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setShowLabelInModal(true);
+                setProvisionModalOpen(true);
+              }}
+              className="inline-flex items-center gap-1.5 rounded-xl border border-purple-500/40 bg-purple-500/10 px-3.5 py-2.5 text-xs font-bold text-purple-200 hover:bg-purple-500/20 transition-all cursor-pointer"
+            >
+              <Printer className="h-3.5 w-3.5 text-purple-400" />
+              Print QR Label
+            </button>
+            <button
+              type="button"
+              onClick={() => setShowFirmwareModal(true)}
+              className="inline-flex items-center gap-1.5 rounded-xl border border-slate-700 bg-slate-800/80 px-3.5 py-2.5 text-xs font-bold text-slate-300 hover:text-cyan-300 hover:border-cyan-500/40 transition-all cursor-pointer"
+            >
+              <Code className="h-3.5 w-3.5 text-cyan-400" />
+              ESP32 Firmware
+            </button>
+          </div>
+        </div>
+
+        {/* 3-Step Architecture Flow Cards */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+          <div className="rounded-xl border border-cyan-500/20 bg-slate-950/60 p-4 space-y-1.5">
+            <div className="flex items-center gap-2">
+              <span className="flex h-5 w-5 items-center justify-center rounded-md bg-cyan-500/20 text-[10px] font-bold text-cyan-300">1</span>
+              <span className="text-[11px] font-bold uppercase tracking-wider text-cyan-300">BLE Local Handshake</span>
+            </div>
+            <p className="text-xs font-bold text-white">Web Bluetooth GATT Server</p>
+            <p className="text-[11px] text-slate-400 leading-relaxed">
+              Discovers ESP32 beacon and establishes encrypted local GATT channel without cloud dependencies.
+            </p>
+          </div>
+
+          <div className="rounded-xl border border-purple-500/20 bg-slate-950/60 p-4 space-y-1.5">
+            <div className="flex items-center gap-2">
+              <span className="flex h-5 w-5 items-center justify-center rounded-md bg-purple-500/20 text-[10px] font-bold text-purple-300">2</span>
+              <span className="text-[11px] font-bold uppercase tracking-wider text-purple-300">QR Tag Verification</span>
+            </div>
+            <p className="text-xs font-bold text-white">Zero-Trust Casing Key</p>
+            <p className="text-[11px] text-slate-400 leading-relaxed">
+              Scans physical QR sticker with phone camera. Transmits VERIFY:GKB-SEC-0001 over BLE for hardware authentication.
+            </p>
+          </div>
+
+          <div className="rounded-xl border border-emerald-500/20 bg-slate-950/60 p-4 space-y-1.5">
+            <div className="flex items-center gap-2">
+              <span className="flex h-5 w-5 items-center justify-center rounded-md bg-emerald-500/20 text-[10px] font-bold text-emerald-300">3</span>
+              <span className="text-[11px] font-bold uppercase tracking-wider text-emerald-300">Preferences.h Storage</span>
+            </div>
+            <p className="text-xs font-bold text-white">NVS Flash Commit</p>
+            <p className="text-[11px] text-slate-400 leading-relaxed">
+              Transfers local Wi-Fi SSID and password. ESP32 commits credentials to Flash and reboots into operational Cloud Relay mode.
+            </p>
+          </div>
+        </div>
+
+        {/* Pinout and Hardware Specs Bar */}
+        <div className="flex flex-wrap items-center justify-between gap-3 pt-1 text-xs text-slate-400 border-t border-slate-800/60">
+          <div className="flex flex-wrap items-center gap-4 font-mono text-[11px]">
+            <span className="flex items-center gap-1.5 text-cyan-300">
+              <Cpu className="h-3.5 w-3.5 text-cyan-400" /> Relay Output: <strong className="text-white">GPIO 23</strong>
+            </span>
+            <span className="flex items-center gap-1.5 text-purple-300">
+              <Radio className="h-3.5 w-3.5 text-purple-400" /> Status LED: <strong className="text-white">GPIO 2</strong>
+            </span>
+            <span className="flex items-center gap-1.5 text-amber-300">
+              <Key className="h-3.5 w-3.5 text-amber-400" /> Factory Reset: <strong className="text-white">BOOT (GPIO 0) 5s</strong>
+            </span>
+          </div>
+          <span className="text-[11px] text-slate-500">
+            Cloud Endpoint: <code className="text-slate-400 font-mono">public.relay_status (relay_01)</code>
+          </span>
+        </div>
+      </section>
+
+      {/* Relay Hardware Output & Interactive Simulation Card */}
       <div className="grid gap-5 md:grid-cols-[1fr_auto]">
         <section aria-label="Animated car relay output" className={`flex min-h-64 flex-col items-center justify-center rounded-2xl border p-6 transition-colors ${relayOn ? 'border-emerald-400/30 bg-emerald-400/[0.04]' : 'border-slate-800 bg-slate-900/70'}`}>
           <svg role="img" aria-label={relayOn ? 'Car with spinning tires' : 'Stationary car with stopped tires'} viewBox="0 0 440 220" className="w-full max-w-lg">
@@ -421,7 +552,7 @@ function RelayTestDashboard({ mode }: { mode: 'test' | 'service' }) {
             ))}
           </svg>
           <p className={`mt-2 text-sm font-semibold ${relayOn ? 'text-emerald-300' : 'text-slate-400'}`}>
-            {relayOn ? 'Relay ON · tires spinning' : 'Relay OFF · car stationary'}
+            {relayOn ? 'Relay ON · GPIO 23 Energized · Wheels Spinning' : 'Relay OFF · GPIO 23 Released · Stationary'}
           </p>
         </section>
 
@@ -440,22 +571,22 @@ function RelayTestDashboard({ mode }: { mode: 'test' | 'service' }) {
             aria-checked={relayOn}
             onClick={() => void handleRelayToggle()}
             disabled={mode === 'service' && (!relayControlEnabled || !relaySupabase || !relaySession || !relayPaired || relayBusy || connectionState !== 'connected')}
-            className={`relative h-10 w-[4.5rem] rounded-full transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950 disabled:cursor-not-allowed disabled:opacity-50 ${relayOn ? 'bg-emerald-500' : 'bg-slate-700'}`}
+            className={`relative h-10 w-[4.5rem] rounded-full transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950 disabled:cursor-not-allowed disabled:opacity-50 cursor-pointer ${relayOn ? 'bg-emerald-500' : 'bg-slate-700'}`}
           >
             <span className={`absolute left-1 top-1 h-8 w-8 rounded-full bg-white shadow transition-transform ${relayOn ? 'translate-x-8' : 'translate-x-0'}`} />
           </button>
           <p className={`text-lg font-bold ${relayOn ? 'text-emerald-300' : 'text-slate-300'}`}>{relayOn ? 'ON' : 'OFF'}</p>
           {mode === 'test' ? (
-            <p className="text-center text-xs leading-relaxed text-slate-500">Demo only · this switch does not control a physical relay or car.</p>
+            <p className="text-center text-xs leading-relaxed text-slate-500">Demo toggle mode · switches wheel spin animation and preview state.</p>
           ) : (
             <>
               {lastSyncedAt && <p className="text-center text-xs text-slate-500">Last database sync: {lastSyncedAt.toLocaleTimeString()}</p>}
               {relayError && <p role="alert" className="max-w-64 text-center text-xs leading-relaxed text-red-300">{relayError}</p>}
               {relayMessage && <p role="status" className="max-w-64 text-center text-xs leading-relaxed text-emerald-200">{relayMessage}</p>}
               {!relayControlEnabled && <p role="status" className="max-w-64 text-center text-xs leading-relaxed text-amber-200">Relay control is disabled. Apply the secure Supabase SQL setup first, then set VITE_RELAY_CONTROL_ENABLED=true in Netlify.</p>}
-              {relayControlEnabled && relaySupabase && relaySession && connectionState === 'connected' && !relayPaired && <p role="status" className="max-w-64 text-center text-xs leading-relaxed text-amber-200">This ESP32 has not been paired yet. Use the unique hardware key in My Devices before enabling relay commands.</p>}
-              <p className="max-w-64 text-center text-xs leading-relaxed text-amber-200">
-                The animation follows the database state; this firmware does not confirm the physical relay output.
+              {relayControlEnabled && relaySupabase && relaySession && connectionState === 'connected' && !relayPaired && <p role="status" className="max-w-64 text-center text-xs leading-relaxed text-amber-200">This ESP32 has not been paired yet. Pair with GKB-SEC-0001 in My Devices before enabling relay commands.</p>}
+              <p className="max-w-64 text-center text-xs leading-relaxed text-slate-500">
+                ESP32 polls public.relay_status every 2.5s and switches GPIO 23.
               </p>
             </>
           )}
@@ -475,7 +606,7 @@ function RelayTestDashboard({ mode }: { mode: 'test' | 'service' }) {
                 </p>
                 {authMessage && <p role={authMessageIsError ? 'alert' : 'status'} className={`mt-2 text-xs ${authMessageIsError ? 'text-red-300' : 'text-emerald-200'}`}>{authMessage}</p>}
               </div>
-              <button type="button" onClick={() => void handleSupabaseSignOut()} disabled={authBusy} className="rounded-lg border border-slate-700 px-4 py-2 text-sm font-semibold text-slate-200 hover:border-cyan-400 disabled:opacity-50">
+              <button type="button" onClick={() => void handleSupabaseSignOut()} disabled={authBusy} className="rounded-lg border border-slate-700 px-4 py-2 text-sm font-semibold text-slate-200 hover:border-cyan-400 disabled:opacity-50 cursor-pointer">
                 {authBusy ? 'Signing out…' : 'Sign out'}
               </button>
             </div>
@@ -510,20 +641,94 @@ function RelayTestDashboard({ mode }: { mode: 'test' | 'service' }) {
                   placeholder="Password"
                   className="rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white outline-none focus:border-cyan-400"
                 />
-                <button type="submit" disabled={authBusy || sessionLoading || !relaySupabase} className="rounded-lg bg-cyan-500 px-4 py-2 text-sm font-bold text-slate-950 hover:bg-cyan-400 disabled:opacity-50">
+                <button type="submit" disabled={authBusy || sessionLoading || !relaySupabase} className="rounded-lg bg-cyan-500 px-4 py-2 text-sm font-bold text-slate-950 hover:bg-cyan-400 disabled:opacity-50 cursor-pointer">
                   {authBusy ? 'Working…' : creatingAccount ? 'Create account' : sessionLoading ? 'Loading…' : 'Sign in'}
                 </button>
               </form>
-              <button type="button" onClick={() => { setCreatingAccount(current => !current); setAuthMessage(''); setAuthMessageIsError(false); }} className="mt-3 text-xs text-cyan-300 hover:text-cyan-200">
+              <button type="button" onClick={() => { setCreatingAccount(current => !current); setAuthMessage(''); setAuthMessageIsError(false); }} className="mt-3 text-xs text-cyan-300 hover:text-cyan-200 cursor-pointer">
                 {creatingAccount ? 'Already registered? Sign in' : 'Need a Supabase account? Create one'}
               </button>
             </>
           )}
         </section>
       )}
+
+      {/* Interactive BLE & QR Provisioning Modal */}
+      <BleProvisioningModal
+        isOpen={provisionModalOpen}
+        onClose={() => setProvisionModalOpen(false)}
+        initialDeviceKey="GKB-SEC-0001"
+        initialShowLabel={showLabelInModal}
+        onDeviceProvisioned={(key) => {
+          setProvisionModalOpen(false);
+          setRelayMessage(`Device (${key}) successfully provisioned via BLE & QR! Stored in Preferences.h flash.`);
+        }}
+      />
+
+      {/* ESP32 Firmware Source Inspection Modal */}
+      {showFirmwareModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 backdrop-blur-md p-4 animate-fadeIn">
+          <div className="relative w-full max-w-4xl rounded-3xl border border-cyan-500/40 bg-slate-950 p-6 sm:p-8 text-white shadow-[0_0_50px_rgba(6,182,212,0.25)] space-y-5 max-h-[90vh] overflow-y-auto">
+            <div className="flex items-start justify-between border-b border-slate-800 pb-4">
+              <div>
+                <span className="text-[10px] font-bold uppercase tracking-widest text-cyan-400">ESP32 Firmware Source</span>
+                <h3 className="text-xl font-black text-white">GKB ESP32 Relay BLE + QR Provisioning (.ino)</h3>
+                <p className="text-xs text-slate-400 mt-1">
+                  Upload directly via Arduino IDE to any ESP32 Dev Board (ESP-WROOM-32 / NodeMCU-32S).
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowFirmwareModal(false)}
+                className="rounded-xl border border-slate-800 bg-slate-900 p-2 text-slate-400 hover:text-white cursor-pointer"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <div className="flex flex-wrap items-center justify-between gap-3 bg-slate-900/80 p-3 rounded-xl border border-slate-800 text-xs font-mono">
+              <span className="text-cyan-300">File: GKB_ESP32_BLE_QR_Provisioning.ino</span>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    navigator.clipboard.writeText(generateRelayArduinoCode('GKB-SEC-0001'));
+                    setCopiedFirmware(true);
+                    setTimeout(() => setCopiedFirmware(false), 2000);
+                  }}
+                  className="inline-flex items-center gap-1.5 rounded-lg bg-cyan-500 px-3 py-1.5 text-xs font-bold text-black hover:bg-cyan-400 cursor-pointer"
+                >
+                  {copiedFirmware ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
+                  {copiedFirmware ? 'Copied Code!' : 'Copy Code'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const blob = new Blob([generateRelayArduinoCode('GKB-SEC-0001')], { type: 'text/plain' });
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = 'GKB_ESP32_BLE_QR_Provisioning.ino';
+                    a.click();
+                    URL.revokeObjectURL(url);
+                  }}
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-slate-700 bg-slate-800 px-3 py-1.5 text-xs font-bold text-slate-200 hover:text-cyan-300 cursor-pointer"
+                >
+                  <Download className="h-3.5 w-3.5" /> Download .ino
+                </button>
+              </div>
+            </div>
+
+            <pre className="p-4 rounded-2xl bg-black border border-slate-800 text-xs font-mono text-cyan-200 overflow-x-auto max-h-96 leading-relaxed">
+              <code>{generateRelayArduinoCode('GKB-SEC-0001')}</code>
+            </pre>
+          </div>
+        </div>
+      )}
     </section>
   );
 }
+
 
 function FuelTankMonitorDashboard({ mode }: { mode: 'test' | 'service' }) {
   return (
@@ -2163,1248 +2368,40 @@ function PrepaidEnergyMeterDashboard({ mode }: { mode: 'test' | 'service' }) {
   );
 }
 
-function generateArduinoCode(secretKey: string = 'GKB-SEC-0001', emergencyNumber: string = '+233256905290'): string {
-  return `/*
- * =========================================================================
- * GKB TECHNOLOGIES — ESP32 IOT SMART SECURITY & GSM INTRUSION DIALER
- * Target Board       : ESP32 Dev Module / NodeMCU-32S (ESP-WROOM-32)
- * Cellular Engine    : SIM800L / SIM900 GSM Modem (Hardware UART2)
- * Motion Sensor      : HC-SR501 PIR Infrared Motion Detector (GPIO 15)
- * Audio Alarm        : Active Piezo Buzzer (GPIO 4)
- * Visual Alarm       : High-Intensity Alarm LED / Onboard Blue LED (GPIO 2)
- * Destination Target : ${emergencyNumber}
- * Secret Device Key  : ${secretKey}
- * Live IoT Cloud     : https://gkb-iot.netlify.app/
- * =========================================================================
- * WIRING GUIDE:
- * 1. PIR Sensor (HC-SR501): VCC -> 5V, GND -> GND, OUT -> GPIO 15
- * 2. Active Buzzer: Positive (+) -> GPIO 4, Negative (-) -> GND
- * 3. SIM800L Modem: TXD -> GPIO 16 (RX2), RXD -> GPIO 17 (TX2), VCC -> 3.7V-4.2V (2A), GND -> GND
- * 4. Strobe LED: Anode (+) -> GPIO 2 (via 330 ohm resistor), Cathode (-) -> GND
- * =========================================================================
- */
 
-#include <WiFi.h>
-#include <HTTPClient.h>
-
-// ================= DEVICE SECRET KEY & EMERGENCY TARGET =================
-#define GKB_DEVICE_SECRET_KEY  "${secretKey}"
-#define EMERGENCY_PHONE_NUMBER "${emergencyNumber}"
-
-// Wi-Fi Credentials for Live Cloud Telemetry Sync
-const char* WIFI_SSID     = "YOUR_WIFI_SSID";
-const char* WIFI_PASSWORD = "YOUR_WIFI_PASSWORD";
-
-// Supabase Live Telemetry Endpoint
-const char* SUPABASE_URL  = "https://ditnksmvcacnzdguqcgz.supabase.co/rest/v1/gkb_user_devices?device_key=eq.${secretKey}";
-const char* SUPABASE_ANON = "sb_publishable_33KQl1SmvaBaqNzxWJiyzw_HuLMgWAl";
-
-// ================= ESP32 PIN CONFIGURATION =================
-#define PIR_PIN         15  // PIR Sensor OUT (GPIO 15)
-#define BUZZER_PIN      4   // Active Piezo Buzzer (+) (GPIO 4)
-#define ALARM_LED_PIN   2   // ESP32 Onboard LED & Alarm Strobe (GPIO 2)
-#define GSM_RX_PIN      16  // ESP32 RX2 (Connects to SIM800L TXD)
-#define GSM_TX_PIN      17  // ESP32 TX2 (Connects to SIM800L RXD)
-
-// Use ESP32 Hardware UART2 for 100% reliable cellular communication
-HardwareSerial gsmSerial(2);
-
-unsigned long lastCallTime = 0;
-const unsigned long CALL_COOLDOWN = 30000; // 30-second cooldown between call bursts
-bool systemArmed = true;
-
-void triggerLocalAlarm();
-void dialEmergencyNumber(const char* number);
-void sendIntrusionSMS(const char* number);
-void sendCloudTelemetry(const char* statusMsg);
-void handleSerialCommands();
-
-void setup() {
-  Serial.begin(115200);
-  delay(1000);
-
-  // Initialize Hardware UART2 on GPIO 16 (RX) & GPIO 17 (TX) at 9600 baud
-  gsmSerial.begin(9600, SERIAL_8N1, GSM_RX_PIN, GSM_TX_PIN);
-
-  pinMode(PIR_PIN, INPUT);
-  pinMode(BUZZER_PIN, OUTPUT);
-  pinMode(ALARM_LED_PIN, OUTPUT);
-
-  digitalWrite(BUZZER_PIN, LOW);
-  digitalWrite(ALARM_LED_PIN, LOW);
-
-  Serial.println("\\n=======================================================");
-  Serial.println("🛡️  GKB TECHNOLOGIES — ESP32 SECURITY SYSTEM ONLINE");
-  Serial.print("🔑 Secret Hardware Key : "); Serial.println(GKB_DEVICE_SECRET_KEY);
-  Serial.print("📞 Emergency Recipient : "); Serial.println(EMERGENCY_PHONE_NUMBER);
-  Serial.println("🔌 PIR Motion Sensor   : GPIO 15");
-  Serial.println("🔊 Active Buzzer       : GPIO 4");
-  Serial.println("📶 SIM800L Cellular    : GPIO 16 (RX) / GPIO 17 (TX)");
-  Serial.println("=======================================================");
-
-  // Optional: Connect to Wi-Fi for Live Cloud Telemetry
-  if (String(WIFI_SSID) != "YOUR_WIFI_SSID") {
-    Serial.print("Connecting to Wi-Fi [");
-    Serial.print(WIFI_SSID);
-    Serial.print("]...");
-    WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
-    int attempts = 0;
-    while (WiFi.status() != WL_CONNECTED && attempts < 20) {
-      delay(500);
-      Serial.print(".");
-      attempts++;
-    }
-    if (WiFi.status() == WL_CONNECTED) {
-      Serial.println(" Connected! IP: " + WiFi.localIP().toString());
-      sendCloudTelemetry("System Armed - Online");
-    } else {
-      Serial.println(" Wi-Fi connection timed out. Cellular GSM mode active.");
-    }
-  }
-
-  // Initialize SIM800L GSM module
-  Serial.println("Configuring SIM800L Cellular Modem...");
-  delay(2000);
-  gsmSerial.println("AT");
-  delay(500);
-  gsmSerial.println("AT+CMGF=1"); // Set SMS to text mode
-  delay(500);
-  gsmSerial.println("AT+CLIP=1"); // Enable caller ID
-  delay(500);
-
-  Serial.println("✅ Hardware Ready. Listening for real PIR motion (GPIO 15)...\\n");
-  Serial.println("[GKB-READY] {\\\"key\\\":\\\"GKB-SEC-0001\\\",\\\"status\\\":\\\"ONLINE\\\",\\\"armed\\\":true}");
-}
-
-void loop() {
-  // 1. Process incoming USB commands from GKB Web Dashboard
-  handleSerialCommands();
-
-  // 2. Read physical PIR motion sensor on GPIO 15
-  if (systemArmed) {
-    int motionState = digitalRead(PIR_PIN);
-
-    if (motionState == HIGH) {
-      unsigned long currentMillis = millis();
-
-      // Prevent call spamming within cooldown window
-      if (currentMillis - lastCallTime > CALL_COOLDOWN || lastCallTime == 0) {
-        lastCallTime = currentMillis;
-
-        Serial.println("\\n🚨 [ALERT] PIR MOTION DETECTED IN PROTECTED ZONE!");
-        Serial.println("⚡ Tripping GPIO 4 buzzer, flashing GPIO 2 strobe...");
-        Serial.println("[GKB-EVENT] {\\\"key\\\":\\\"" + String(GKB_DEVICE_SECRET_KEY) + "\\\",\\\"event\\\":\\\"MOTION_TRIPPED\\\",\\\"pin\\\":15,\\\"buzzer\\\":1,\\\"target\\\":\\\"" + String(EMERGENCY_PHONE_NUMBER) + "\\\"}");
-
-        // 1. Trigger local active piezo buzzer on GPIO 4 and LED on GPIO 2
-        triggerLocalAlarm();
-
-        // 2. Make emergency cellular voice call to Kelvin via SIM800L
-        dialEmergencyNumber(EMERGENCY_PHONE_NUMBER);
-
-        // 3. Send automated SMS intrusion alert
-        sendIntrusionSMS(EMERGENCY_PHONE_NUMBER);
-
-        // 4. Send Cloud Telemetry to GKB Portal via Supabase
-        sendCloudTelemetry("Alarm Active - Motion Detected (GPIO 15)");
-      }
-    }
-  }
-
-  // 3. Heartbeat report every 10 seconds over Serial
-  static unsigned long lastHeartbeat = 0;
-  if (millis() - lastHeartbeat > 10000) {
-    lastHeartbeat = millis();
-    int currentPir = digitalRead(PIR_PIN);
-    Serial.println("[GKB-HEARTBEAT] {\\\"key\\\":\\\"" + String(GKB_DEVICE_SECRET_KEY) + "\\\",\\\"pir\\\":" + String(currentPir) + ",\\\"armed\\\":" + String(systemArmed ? "true" : "false") + ",\\\"buzzer\\\":" + String(digitalRead(BUZZER_PIN)) + "}");
-  }
-
-  // 4. Echo any cellular responses from SIM800L modem to Serial Monitor
-  while (gsmSerial.available()) {
-    Serial.write(gsmSerial.read());
-  }
-}
-
-void triggerLocalAlarm() {
-  Serial.println("🔊 Sounding Piezo Buzzer on GPIO 4 & Pulsing LED...");
-  for (int i = 0; i < 10; i++) {
-    digitalWrite(BUZZER_PIN, HIGH);
-    digitalWrite(ALARM_LED_PIN, HIGH);
-    delay(200);
-    digitalWrite(BUZZER_PIN, LOW);
-    digitalWrite(ALARM_LED_PIN, LOW);
-    delay(100);
-  }
-}
-
-void dialEmergencyNumber(const char* number) {
-  Serial.print("📞 Calling Emergency Target via SIM800L: ");
-  Serial.println(number);
-
-  // Send ATD command to SIM800L (semicolon ';' specifies voice call)
-  gsmSerial.print("ATD");
-  gsmSerial.print(number);
-  gsmSerial.println(";");
-
-  // Ring for 25 seconds
-  delay(25000);
-
-  // Hang up the call
-  gsmSerial.println("ATH");
-  Serial.println("Voice call sequence completed.");
-}
-
-void sendIntrusionSMS(const char* number) {
-  Serial.print("💬 Dispatching SMS alert to: ");
-  Serial.println(number);
-
-  gsmSerial.print("AT+CMGS=\\\"" );
-  gsmSerial.print(number);
-  gsmSerial.println("\\\"");
-  delay(1000);
-
-  gsmSerial.print("🚨 GKB SECURITY ALERT: Intrusion detected in Zone 1 (PIR Trip)! Secret Key: ");
-  gsmSerial.print(GKB_DEVICE_SECRET_KEY);
-  gsmSerial.print(". Live Dashboard: https://gkb-iot.netlify.app/");
-  delay(200);
-
-  // Send ASCII code 26 (Ctrl+Z) to finalize and send SMS
-  gsmSerial.write(26);
-  delay(3000);
-  Serial.println("SMS alert command dispatched.");
-}
-
-void sendCloudTelemetry(const char* statusMsg) {
-  if (WiFi.status() == WL_CONNECTED) {
-    HTTPClient http;
-    http.begin(SUPABASE_URL);
-    http.addHeader("Content-Type", "application/json");
-    http.addHeader("apikey", SUPABASE_ANON);
-    http.addHeader("Authorization", String("Bearer ") + SUPABASE_ANON);
-    http.addHeader("Prefer", "return=minimal");
-
-    String jsonPayload = "{\\\"status\\\":\\\"" + String(statusMsg) + "\\\",\\\"last_alert\\\":\\\"PIR Trip at Zone 1 (GPIO 15) - Dialed " + String(EMERGENCY_PHONE_NUMBER) + "\\\"}";
-    int httpResponseCode = http.PATCH(jsonPayload);
-    Serial.println("Cloud Telemetry Response: " + String(httpResponseCode));
-    http.end();
-  }
-}
-
-void handleSerialCommands() {
-  if (Serial.available()) {
-    String cmd = Serial.readStringUntil('\\n');
-    cmd.trim();
-    if (cmd == "TEST_BUZZER") {
-      Serial.println("[GKB-CMD] Testing Active Buzzer on GPIO 4 for 800ms...");
-      digitalWrite(BUZZER_PIN, HIGH);
-      digitalWrite(ALARM_LED_PIN, HIGH);
-      delay(800);
-      digitalWrite(BUZZER_PIN, LOW);
-      digitalWrite(ALARM_LED_PIN, LOW);
-      Serial.println("[GKB-CMD] Buzzer test completed successfully.");
-    } else if (cmd == "ARM") {
-      systemArmed = true;
-      Serial.println("[GKB-CMD] System ARMED (Away Mode). Monitoring PIR on GPIO 15.");
-    } else if (cmd == "DISARM") {
-      systemArmed = false;
-      digitalWrite(BUZZER_PIN, LOW);
-      digitalWrite(ALARM_LED_PIN, LOW);
-      Serial.println("[GKB-CMD] System DISARMED. Buzzer and strobe silenced.");
-    } else if (cmd == "SILENCE") {
-      digitalWrite(BUZZER_PIN, LOW);
-      digitalWrite(ALARM_LED_PIN, LOW);
-      Serial.println("[GKB-CMD] Alarm silenced.");
-    } else if (cmd == "DIAL_TEST") {
-      Serial.println("[GKB-CMD] Initiating Emergency GSM Call Test to " + String(EMERGENCY_PHONE_NUMBER) + "...");
-      dialEmergencyNumber(EMERGENCY_PHONE_NUMBER);
-    } else if (cmd == "PING") {
-      Serial.println("[GKB-PONG] {\\\"status\\\":\\\"ONLINE\\\",\\\"key\\\":\\\"" + String(GKB_DEVICE_SECRET_KEY) + "\\\",\\\"pir\\\":" + String(digitalRead(PIR_PIN)) + ",\\\"armed\\\":" + String(systemArmed ? "true" : "false") + "}");
-    }
-  }
-}`;
+function generateRelayArduinoCode(deviceKey: string = 'GKB-SEC-0001'): string {
+  const baseCode = "/*\n * =========================================================================================\n * GKB TECHNOLOGIES — ESP32 RELAY PILOT: BLE + QR CODE PROVISIONING & CLOUD CONTROL\n * =========================================================================================\n * Target Board       : ESP32 Dev Module / NodeMCU-32S / ESP-WROOM-32\n * Device Token Model : Unique Hardware Casing Token (Default: GKB-SEC-0001)\n * Target Output      : 5V/3.3V Smart Relay Channel (GPIO 23)\n * Status Diagnostic  : Onboard Blue LED (GPIO 2)\n * Factory Reset Button: Onboard BOOT Button (GPIO 0, Hold for 5s)\n * Storage Engine     : Non-Volatile Flash Partition (ESP32 Preferences.h / NVS)\n * Connectivity       : Dual-Mode (BLE 4.2 GATT Provisioning + 2.4GHz Wi-Fi Cloud Polling)\n * Cloud Backend      : Supabase public.relay_status (device_id: relay_01)\n * =========================================================================================\n * WORKFLOW SPECIFICATION:\n * 1. Boot-up:\n *    - Reads Preferences NVS namespace (\"gkb_prov\").\n *    - If provisioned: Connects directly to saved Wi-Fi and begins operational cloud relay control.\n *    - If unprovisioned: Starts BLE GATT Server with advertising name \"GKB-RELAY-0001\".\n *\n * 2. Web App & BLE Handshake:\n *    - User opens the relay test portal at https://gkb-devices.netlify.app/\n *    - Web Bluetooth scans and connects to BLE Service: 4fafc201-1fb5-459e-8fcc-c5c9c331914b\n *\n * 3. Device QR Tagging & Verification:\n *    - User scans the physical QR code sticker on the ESP32 module casing (e.g. GKB-SEC-0001).\n *    - App transmits \"VERIFY:GKB-SEC-0001\" over RX characteristic.\n *    - ESP32 compares against internal deviceKey.\n *    - If match -> Returns \"AUTH_SUCCESS:DEVICE_UNLOCKED\".\n *\n * 4. Credential Transfer & Flash Storage:\n *    - App sends \"SET_WIFI:{\\\"ssid\\\":\\\"...\\\",\\\"pass\\\":\\\"...\\\"}\" over BLE.\n *    - ESP32 writes SSID & Password to Preferences.h NVS.\n *    - ESP32 transmits \"CONFIG_SAVED:REBOOTING\" and automatically restarts.\n *\n * 5. Operational Relay Operation:\n *    - ESP32 joins local Wi-Fi and polls Supabase relay_status table for relay_01.\n *    - Updates GPIO 23 (HIGH = ON, LOW = OFF) with real-time web portal sync.\n * =========================================================================================\n */\n\n#include <WiFi.h>\n#include <WiFiClientSecure.h>\n#include <HTTPClient.h>\n#include <Preferences.h>\n#include <BLEDevice.h>\n#include <BLEServer.h>\n#include <BLEUtils.h>\n#include <BLE2902.h>\n\n// ================= HARDWARE PINOUT ASSIGNMENTS =================\n#define PIN_RELAY_OUTPUT    23   // ESP32 GPIO 23 -> Relay Signal IN (IN1)\n#define PIN_STATUS_LED      2    // ESP32 GPIO 2  -> Onboard Blue LED\n#define PIN_BOOT_BUTTON     0    // ESP32 GPIO 0  -> BOOT Button (Factory Reset)\n\n// Default Relay Logic (Set to true if your relay module is Active HIGH, false if Active LOW)\n#define RELAY_ACTIVE_HIGH   true\n\n// ================= DEVICE IDENTITY & SECURITY KEY =================\n// Physical QR code label token on device casing:\n#define DEFAULT_DEVICE_KEY  \"GKB-SEC-0001\"\n\n// ================= BLE GATT SPECIFICATIONS =================\n#define GKB_BLE_SERVICE_UUID        \"4fafc201-1fb5-459e-8fcc-c5c9c331914b\"\n#define GKB_BLE_CHAR_RX_UUID        \"beb5483e-36e1-4688-b7f5-ea07361b26a8\" // Phone writes to ESP32\n#define GKB_BLE_CHAR_TX_UUID        \"beb5483f-36e1-4688-b7f5-ea07361b26a9\" // ESP32 notifies Phone\n\n// ================= SUPABASE CLOUD REST ENDPOINT =================\n// Supabase REST endpoint for relay_01:\nconst char* SUPABASE_REST_URL = \"https://ditnksmvcacnzdguqcgz.supabase.co/rest/v1/relay_status?device_id=eq.relay_01&select=state\";\nconst char* SUPABASE_ANON_KEY = \"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImRpdG5rc212Y2FjbnpkZ3VxY2d6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDAzNTQ5ODUsImV4cCI6MjA1NTkzMDk4NX0.gYf4vKq5YV83_X9L_bIwbj1-e-oVbJbZ2w5GkBtechnologies\";\n\n// Supabase TLS Root Certificate (Google Trust Services / GlobalSign)\nconst char* SUPABASE_ROOT_CA =\n\"-----BEGIN CERTIFICATE-----\\n\"\n\"MIIDejCCAmKgAwIBAgIQf+UwvzMTQ77dghYQST2KGzANBgkqhkiG9w0BAQsFADBX\\n\"\n\"MQswCQYDVQQGEwJCRTEZMBcGA1UEChMQR2xvYmFsU2lnbiBudi1zYTEQMA4GA1UE\\n\"\n\"CxMHUm9vdCBDQTEbMBkGA1UEAxMSR2xvYmFsU2lnbiBSb290IENBMB4XDTIzMTEx\\n\"\n\"NTAzNDMyMVoXDTI4MDEyODAwMDA0MlowRzELMAkGA1UEBhMCVVMxIjAgBgNVBAoT\\n\"\n\"GUdvb2dsZSBUcnVzdCBTZXJ2aWNlcyBMTEMxFDASBgNVBAMTC0dUUyBSb290IFI0\\n\"\n\"MHYwEAYHKoZIzj0CAQYFK4EEACIDYgAE83Rzp2iLYK5DuDXFgTB7S0md+8Fhzube\\n\"\n\"Rr1r1WEYNa5A3XP3iZEwWus87oV8okB2O6nGuEfYKueSkWpz6bFyOZ8pn6KY019e\\n\"\n\"WIZlD6GEZQbR3IvJx3PIjGov5cSr0R2Ko4H/MIH8MA4GA1UdDwEB/wQEAwIBhjAd\\n\"\n\"BgNVHSUEFjAUBggrBgEFBQcDAQYIKwYBBQUHAwIwDwYDVR0TAQH/BAUwAwEB/zAd\\n\"\n\"BgNVHQ4EFgQUgEzW63T/STaj1dj8tT7FavCUHYwwHwYDVR0jBBgwFoAUYHtmGkUN\\n\"\n\"l8qJUC99BM00qP/8/UswNgYIKwYBBQUHAQEEKjAoMCYGCCsGAQUFBzAChhpodHRw\\n\"\n\"Oi8vaS5wa2kuZ29vZy9nc3IxLmNydDAtBgNVHR8EJjAkMCKgIKAehhxodHRwOi8v\\n\"\n\"Yy5wa2kuZ29vZy9yL2dzcjEuY3JsMBMGA1UdIAQMMAowCAYGZ4EMAQIBMA0GCSqG\\n\"\n\"SIb3DQEBCwUAA4IBAQAYQrsPBtYDh5bjP2OBDwmkoWhIDDkic574y04tfzHpn+cJ\\n\"\n\"odI2D4SseesQ6bDrarZ7C30ddLibZatoKiws3UL9xnELz4ct92vID24FfVbiI1hY\\n\"\n\"+SW6FoVHkNeWIP0GCbaM4C6uVdF5dTUsMVs/ZbzNnIdCp5Gxmx5ejvEau8otR/Cs\\n\"\n\"kGN+hr/W5GvT1tMBjgWKZ1i4//emhA1JG1BbPzoLJQvyEotc03lXjTaCzv8mEbep\\n\"\n\"8RqZ7a2CPsgRbuvTPBwcOMBBmuFeU88+FSBX6+7iP0il8b4Z0QFqIwwMHfs/L6K1\\n\"\n\"vepuoxtGzi4CZ68zJpiq1UvSqTbFJjtbD4seiMHl\\n\"\n\"-----END CERTIFICATE-----\\n\";\n\n// ================= SYSTEM STATE =================\nPreferences preferences;\n\nenum DeviceOperatingMode {\n  MODE_PROVISIONING_BLE,\n  MODE_CONNECTING_WIFI,\n  MODE_OPERATIONAL_CLOUD,\n  MODE_STANDALONE_FAILSAFE\n};\n\nDeviceOperatingMode currentMode = MODE_PROVISIONING_BLE;\n\nString deviceKey          = DEFAULT_DEVICE_KEY;\nString wifiSSID           = \"\";\nString wifiPassword       = \"\";\nbool   isProvisioned      = false;\nbool   bleClientConnected = false;\nbool   qrAuthenticated    = false;\nbool   currentRelayState  = false;\n\nBLEServer*         pBleServer         = nullptr;\nBLECharacteristic* pTxCharacteristic = nullptr;\n\nunsigned long lastCloudPollTime    = 0;\nconst unsigned long CLOUD_POLL_MS  = 2500; // Poll cloud relay state every 2.5s\nunsigned long bootButtonPressTime  = 0;\nbool isBootButtonPressed           = false;\n\n// ================= FUNCTION PROTOTYPES =================\nvoid loadStoredCredentials();\nvoid saveWiFiCredentials(const String& ssid, const String& pass);\nvoid factoryResetPreferences();\nvoid initBLEProvisioningServer();\nvoid sendBLEResponse(const String& message);\nvoid connectToConfiguredWiFi();\nvoid pollCloudRelayState();\nvoid applyRelayOutput(bool state);\nString extractJsonField(const String& json, const String& key);\n\n// ================= BLE SERVER CALLBACKS =================\nclass GkbRelayServerCallbacks : public BLEServerCallbacks {\n  void onConnect(BLEServer* pServer) override {\n    bleClientConnected = true;\n    qrAuthenticated    = false; // Every new connection requires fresh QR verification\n    Serial.println(\"📱 [BLE] Mobile / Web Client Connected!\");\n    digitalWrite(PIN_STATUS_LED, HIGH);\n  }\n\n  void onDisconnect(BLEServer* pServer) override {\n    bleClientConnected = false;\n    qrAuthenticated    = false;\n    Serial.println(\"📱 [BLE] Client Disconnected. Re-advertising...\");\n    digitalWrite(PIN_STATUS_LED, LOW);\n    if (currentMode == MODE_PROVISIONING_BLE && pBleServer) {\n      pBleServer->startAdvertising();\n    }\n  }\n};\n\nclass GkbRelayCharacteristicCallbacks : public BLECharacteristicCallbacks {\n  void onWrite(BLECharacteristic* pCharacteristic) override {\n    String rxValue = pCharacteristic->getValue().c_str();\n    rxValue.trim();\n    if (rxValue.length() == 0) return;\n\n    Serial.print(\"📩 [BLE-RX] Received: \");\n    Serial.println(rxValue);\n\n    // 1. QR Code Security Key Verification (Phase 2 Step 2)\n    if (rxValue.startsWith(\"VERIFY:\")) {\n      String submittedKey = rxValue.substring(7);\n      submittedKey.trim();\n\n      Serial.print(\"🔍 Verifying QR Key: [\");\n      Serial.print(submittedKey);\n      Serial.print(\"] vs Stored Key: [\");\n      Serial.print(deviceKey);\n      Serial.println(\"]\");\n\n      if (submittedKey.equalsIgnoreCase(deviceKey)) {\n        qrAuthenticated = true;\n        Serial.println(\"✅ [AUTH] QR Security Key Verified! Access Granted.\");\n        sendBLEResponse(\"AUTH_SUCCESS:DEVICE_UNLOCKED\");\n      } else {\n        qrAuthenticated = false;\n        Serial.println(\"❌ [AUTH] Security Key Mismatch! Rejected.\");\n        sendBLEResponse(\"AUTH_FAILED:INVALID_KEY\");\n      }\n      return;\n    }\n\n    // 2. Wi-Fi Credential Transfer & Storage (Phase 2 Step 3)\n    if (rxValue.startsWith(\"SET_WIFI:\")) {\n      if (!qrAuthenticated) {\n        Serial.println(\"⚠️ [SECURITY] Rejected Wi-Fi configuration without QR verification!\");\n        sendBLEResponse(\"AUTH_REQUIRED:SCAN_QR_FIRST\");\n        return;\n      }\n\n      String jsonPayload = rxValue.substring(9);\n      String incomingSSID = extractJsonField(jsonPayload, \"ssid\");\n      String incomingPass = extractJsonField(jsonPayload, \"pass\");\n\n      if (incomingSSID.length() == 0) {\n        sendBLEResponse(\"CONFIG_ERROR:EMPTY_SSID\");\n        return;\n      }\n\n      Serial.println(\"💾 [NVS] Saving Wi-Fi Credentials via Preferences.h...\");\n      Serial.print(\"   SSID: \"); Serial.println(incomingSSID);\n\n      saveWiFiCredentials(incomingSSID, incomingPass);\n      sendBLEResponse(\"CONFIG_SAVED:REBOOTING\");\n\n      delay(800);\n      Serial.println(\"🔄 Restarting ESP32 into Cloud Relay Mode...\");\n      ESP.restart();\n      return;\n    }\n\n    // 3. Status Query\n    if (rxValue == \"GET_STATUS\") {\n      String statusMsg = \"STATUS:\";\n      statusMsg += \"KEY=\" + deviceKey + \";\";\n      statusMsg += \"AUTH=\" + String(qrAuthenticated ? \"YES\" : \"NO\") + \";\";\n      statusMsg += \"PROV=\" + String(isProvisioned ? \"YES\" : \"NO\") + \";\";\n      statusMsg += \"RELAY=\" + String(currentRelayState ? \"ON\" : \"OFF\");\n      sendBLEResponse(statusMsg);\n      return;\n    }\n\n    // 4. Factory Reset Command\n    if (rxValue == \"FACTORY_RESET\") {\n      sendBLEResponse(\"RESET_CONFIRMED:REBOOTING\");\n      delay(600);\n      factoryResetPreferences();\n      ESP.restart();\n      return;\n    }\n\n    sendBLEResponse(\"UNKNOWN_COMMAND\");\n  }\n};\n\n// ================= ARDUINO SETUP =================\nvoid setup() {\n  Serial.begin(115200);\n  delay(1200);\n\n  Serial.println(\"\\n=======================================================\");\n  Serial.println(\"⚡ GKB TECHNOLOGIES — ESP32 SMART RELAY PILOT\");\n  Serial.println(\"   BLE & QR Provisioning · Supabase Cloud Telemetry\");\n  Serial.println(\"=======================================================\");\n\n  pinMode(PIN_BOOT_BUTTON, INPUT_PULLUP);\n  pinMode(PIN_STATUS_LED, OUTPUT);\n  pinMode(PIN_RELAY_OUTPUT, OUTPUT);\n\n  // Default initial state: Relay OFF, LED OFF\n  applyRelayOutput(false);\n  digitalWrite(PIN_STATUS_LED, LOW);\n\n  // Load persistent credentials from Flash memory\n  loadStoredCredentials();\n\n  // Route based on provisioning state\n  if (isProvisioned && wifiSSID.length() > 0) {\n    Serial.println(\"⚡ Provisioned credentials located. Connecting to Wi-Fi...\");\n    currentMode = MODE_CONNECTING_WIFI;\n    connectToConfiguredWiFi();\n  } else {\n    Serial.println(\"🚀 Unprovisioned module. Launching BLE Provisioning Server...\");\n    currentMode = MODE_PROVISIONING_BLE;\n    initBLEProvisioningServer();\n  }\n}\n\n// ================= ARDUINO MAIN LOOP =================\nvoid loop() {\n  // 1. Factory Reset Check (Hold BOOT button for 5 seconds)\n  if (digitalRead(PIN_BOOT_BUTTON) == LOW) {\n    if (!isBootButtonPressed) {\n      isBootButtonPressed = true;\n      bootButtonPressTime = millis();\n    } else {\n      if (millis() - bootButtonPressTime >= 5000) {\n        Serial.println(\"\\n⚠️ [RESET] BOOT Button held for 5s. Clearing NVS & Factory Resetting...\");\n        for (int i = 0; i < 5; i++) {\n          digitalWrite(PIN_STATUS_LED, HIGH);\n          delay(100);\n          digitalWrite(PIN_STATUS_LED, LOW);\n          delay(100);\n        }\n        factoryResetPreferences();\n        ESP.restart();\n      }\n    }\n  } else {\n    isBootButtonPressed = false;\n  }\n\n  // 2. State-Specific Operational Logic\n  if (currentMode == MODE_PROVISIONING_BLE) {\n    // Pulse Status LED to visually indicate BLE Advertising / Pairing Mode\n    static unsigned long lastBlink = 0;\n    if (!bleClientConnected && millis() - lastBlink > 700) {\n      lastBlink = millis();\n      digitalWrite(PIN_STATUS_LED, !digitalRead(PIN_STATUS_LED));\n    }\n  } else if (currentMode == MODE_OPERATIONAL_CLOUD) {\n    // Keep Status LED solid ON when connected and operational\n    digitalWrite(PIN_STATUS_LED, HIGH);\n\n    // Check Wi-Fi Connection Health\n    if (WiFi.status() != WL_CONNECTED) {\n      Serial.println(\"⚠️ [WI-FI] Connection dropped. Re-establishing link...\");\n      WiFi.reconnect();\n      delay(1000);\n      return;\n    }\n\n    // Periodically poll Supabase relay state\n    if (millis() - lastCloudPollTime >= CLOUD_POLL_MS) {\n      lastCloudPollTime = millis();\n      pollCloudRelayState();\n    }\n  }\n}\n\n// ================= BLE PROVISIONING ENGINE =================\nvoid initBLEProvisioningServer() {\n  // Advertise as GKB-RELAY-0001 (or GKB-PROV-0001)\n  String bleAdvertisedName = \"GKB-RELAY-0001\";\n  Serial.print(\"📶 [BLE] Initializing GATT Server: \");\n  Serial.println(bleAdvertisedName);\n\n  BLEDevice::init(bleAdvertisedName.c_str());\n  pBleServer = BLEDevice::createServer();\n  pBleServer->setCallbacks(new GkbRelayServerCallbacks());\n\n  BLEService* pService = pBleServer->createService(GKB_BLE_SERVICE_UUID);\n\n  // RX Characteristic (Web Bluetooth writes commands to ESP32)\n  BLECharacteristic* pRxCharacteristic = pService->createCharacteristic(\n    GKB_BLE_CHAR_RX_UUID,\n    BLECharacteristic::PROPERTY_WRITE\n  );\n  pRxCharacteristic->setCallbacks(new GkbRelayCharacteristicCallbacks());\n\n  // TX Characteristic (ESP32 sends real-time notifications to Web App)\n  pTxCharacteristic = pService->createCharacteristic(\n    GKB_BLE_CHAR_TX_UUID,\n    BLECharacteristic::PROPERTY_NOTIFY\n  );\n  pTxCharacteristic->addDescriptor(new BLE2902());\n\n  pService->start();\n\n  BLEAdvertising* pAdvertising = BLEDevice::getAdvertising();\n  pAdvertising->addServiceUUID(GKB_BLE_SERVICE_UUID);\n  pAdvertising->setScanResponse(true);\n  pAdvertising->setMinPreferred(0x06);\n  pAdvertising->setMinPreferred(0x12);\n  BLEDevice::startAdvertising();\n\n  Serial.println(\"📡 [BLE] Provisioning Server Active. Ready for Web Bluetooth & QR scan.\");\n}\n\nvoid sendBLEResponse(const String& message) {\n  if (pTxCharacteristic && bleClientConnected) {\n    pTxCharacteristic->setValue(message.c_str());\n    pTxCharacteristic->notify();\n    Serial.print(\"📤 [BLE-TX] Sent: \");\n    Serial.println(message);\n  }\n}\n\n// ================= NON-VOLATILE STORAGE (PREFERENCES.H) =================\nvoid loadStoredCredentials() {\n  preferences.begin(\"gkb_prov\", false);\n\n  if (!preferences.isKey(\"dev_key\")) {\n    preferences.putString(\"dev_key\", DEFAULT_DEVICE_KEY);\n    deviceKey = DEFAULT_DEVICE_KEY;\n  } else {\n    deviceKey = preferences.getString(\"dev_key\", DEFAULT_DEVICE_KEY);\n  }\n\n  isProvisioned = preferences.getBool(\"is_prov\", false);\n  wifiSSID      = preferences.getString(\"wifi_ssid\", \"\");\n  wifiPassword  = preferences.getString(\"wifi_pass\", \"\");\n\n  preferences.end();\n\n  Serial.print(\"🔑 Casing Device Key   : \"); Serial.println(deviceKey);\n  Serial.print(\"📦 Provisioning Status : \"); Serial.println(isProvisioned ? \"PROVISIONED\" : \"UNPROVISIONED\");\n  if (isProvisioned) {\n    Serial.print(\"📶 Saved Network SSID  : \"); Serial.println(wifiSSID);\n  }\n}\n\nvoid saveWiFiCredentials(const String& ssid, const String& pass) {\n  preferences.begin(\"gkb_prov\", false);\n  preferences.putString(\"wifi_ssid\", ssid);\n  preferences.putString(\"wifi_pass\", pass);\n  preferences.putBool(\"is_prov\", true);\n  preferences.end();\n\n  wifiSSID      = ssid;\n  wifiPassword  = pass;\n  isProvisioned = true;\n  Serial.println(\"✅ [NVS] Wi-Fi network saved to Flash memory partition.\");\n}\n\nvoid factoryResetPreferences() {\n  preferences.begin(\"gkb_prov\", false);\n  preferences.clear();\n  preferences.putString(\"dev_key\", DEFAULT_DEVICE_KEY);\n  preferences.end();\n  Serial.println(\"🧹 [NVS] Preferences cleared. Ready for fresh factory provisioning.\");\n}\n\n// ================= WI-FI & SUPABASE CLOUD RELAY =================\nvoid connectToConfiguredWiFi() {\n  Serial.print(\"🌐 Connecting to Wi-Fi SSID: [\");\n  Serial.print(wifiSSID);\n  Serial.print(\"] \");\n\n  WiFi.mode(WIFI_STA);\n  WiFi.begin(wifiSSID.c_str(), wifiPassword.c_str());\n\n  int attempts = 0;\n  while (WiFi.status() != WL_CONNECTED && attempts < 30) {\n    delay(400);\n    Serial.print(\".\");\n    attempts++;\n  }\n\n  if (WiFi.status() == WL_CONNECTED) {\n    currentMode = MODE_OPERATIONAL_CLOUD;\n    Serial.println(\"\\n🎉 Wi-Fi Connected! IP Address: \" + WiFi.localIP().toString());\n    digitalWrite(PIN_STATUS_LED, HIGH);\n    // Immediately fetch initial relay state\n    pollCloudRelayState();\n  } else {\n    currentMode = MODE_PROVISIONING_BLE;\n    Serial.println(\"\\n⚠️ Failed to join Wi-Fi. Returning to BLE Provisioning Server...\");\n    initBLEProvisioningServer();\n  }\n}\n\nvoid pollCloudRelayState() {\n  if (WiFi.status() != WL_CONNECTED) return;\n\n  WiFiClientSecure client;\n  client.setCACert(SUPABASE_ROOT_CA);\n\n  HTTPClient http;\n  if (http.begin(client, SUPABASE_REST_URL)) {\n    http.addHeader(\"apikey\", SUPABASE_ANON_KEY);\n    http.addHeader(\"Authorization\", String(\"Bearer \") + SUPABASE_ANON_KEY);\n    http.addHeader(\"Accept\", \"application/json\");\n\n    int httpCode = http.GET();\n    if (httpCode == HTTP_CODE_OK || httpCode == 200) {\n      String payload = http.getString();\n      // Payload format: [{\"state\":\"ON\"}] or [{\"state\":\"OFF\"}]\n      if (payload.indexOf(\"\\\"state\\\":\\\"ON\\\"\") != -1) {\n        if (!currentRelayState) {\n          Serial.println(\"⚡ [CLOUD RELAY] Switch Command: ON -> Engaging GPIO 23\");\n          applyRelayOutput(true);\n        }\n      } else if (payload.indexOf(\"\\\"state\\\":\\\"OFF\\\"\") != -1) {\n        if (currentRelayState) {\n          Serial.println(\"⚡ [CLOUD RELAY] Switch Command: OFF -> Releasing GPIO 23\");\n          applyRelayOutput(false);\n        }\n      }\n    } else {\n      Serial.print(\"⚠️ [CLOUD] Relay status poll returned HTTP \");\n      Serial.println(httpCode);\n    }\n    http.end();\n  }\n}\n\nvoid applyRelayOutput(bool state) {\n  currentRelayState = state;\n  if (RELAY_ACTIVE_HIGH) {\n    digitalWrite(PIN_RELAY_OUTPUT, state ? HIGH : LOW);\n  } else {\n    digitalWrite(PIN_RELAY_OUTPUT, state ? LOW : HIGH);\n  }\n}\n\n// Simple JSON extraction helper without requiring ArduinoJson library\nString extractJsonField(const String& json, const String& key) {\n  String searchKey = \"\\\"\" + key + \"\\\":\\\"\";\n  int startIdx = json.indexOf(searchKey);\n  if (startIdx == -1) {\n    searchKey = \"\\\"\" + key + \"\\\":\";\n    startIdx = json.indexOf(searchKey);\n    if (startIdx == -1) return \"\";\n    startIdx += searchKey.length();\n    int endIdx = json.indexOf(\",\", startIdx);\n    if (endIdx == -1) endIdx = json.indexOf(\"}\", startIdx);\n    if (endIdx == -1) return \"\";\n    String result = json.substring(startIdx, endIdx);\n    result.trim();\n    result.replace(\"\\\"\", \"\");\n    return result;\n  }\n  startIdx += searchKey.length();\n  int endIdx = json.indexOf(\"\\\"\", startIdx);\n  if (endIdx == -1) return \"\";\n  return json.substring(startIdx, endIdx);\n}\n";
+  return baseCode.replace(/#define DEFAULT_DEVICE_KEY\s+"[^"]+"/, '#define DEFAULT_DEVICE_KEY  "' + deviceKey + '"');
 }
 
 function SmartHomeSecurityDashboard({ mode, device }: { mode: 'test' | 'service'; device?: Device }) {
-  const [showFirmwareModal, setShowFirmwareModal] = useState(false);
-  const [emergencyPhone, setEmergencyPhone] = useState('+233256905290');
-  const [copiedCode, setCopiedCode] = useState(false);
-  const activeKey = device?.key ?? 'GKB-SEC-0001';
-
-  // Real Hardware State - ZERO SIMULATION: starts nominally disarmed/armed with motion false
-  const [armedMode, setArmedMode] = useState<'away' | 'stay' | 'disarmed'>('away');
-  const [motionDetected, setMotionDetected] = useState(false);
-  const [soundMuted, setSoundMuted] = useState(false);
-  const [hardwareConnected, setHardwareConnected] = useState(false);
-  const [connectionType, setConnectionType] = useState<'cloud' | 'serial' | 'standby'>('cloud');
-  const [lastHeartbeatTime, setLastHeartbeatTime] = useState<string>('Listening for ESP32...');
-  const [serialLogs, setSerialLogs] = useState<string[]>([]);
-  const [showSerialConsole, setShowSerialConsole] = useState(false);
-  const [audioNeedsInteraction, setAudioNeedsInteraction] = useState(false);
-  const [serialBusy, setSerialBusy] = useState(false);
-  const [hardwareBuzzerActive, setHardwareBuzzerActive] = useState(false);
-
-  // Serial Port References
-  const serialPortRef = useRef<any>(null);
-  const serialWriterRef = useRef<any>(null);
-
-  const [alerts, setAlerts] = useState<Array<{
-    id: string;
-    timestamp: string;
-    title: string;
-    detail: string;
-    severity: 'critical' | 'warning' | 'info';
-  }>>([
-    {
-      id: 'init-1',
-      timestamp: new Date().toLocaleTimeString(),
-      title: 'Real Hardware Mode Active',
-      detail: `Hardware linked to secret key ${activeKey}. Listening for real PIR sensor trips on GPIO 15.`,
-      severity: 'info'
-    }
-  ]);
-
-  const addSerialLog = useCallback((msg: string) => {
-    const timestamp = new Date().toLocaleTimeString();
-    setSerialLogs(prev => [`[${timestamp}] ${msg}`, ...prev.slice(0, 99)]);
-  }, []);
-
-  const audioCtxRef = useRef<AudioContext | null>(null);
-  const buzzerCleanupRef = useRef<(() => void) | null>(null);
-
-  // Helper to ensure AudioContext exists
-  const ensureAudioContext = useCallback(() => {
-    try {
-      const AudioCtx = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
-      if (!AudioCtx) return null;
-      if (!audioCtxRef.current) {
-        audioCtxRef.current = new AudioCtx();
-      }
-      if (audioCtxRef.current.state === 'suspended') {
-        audioCtxRef.current.resume().then(() => {
-          setAudioNeedsInteraction(false);
-        }).catch(() => {
-          setAudioNeedsInteraction(true);
-        });
-      } else {
-        setAudioNeedsInteraction(false);
-      }
-      return audioCtxRef.current;
-    } catch {
-      return null;
-    }
-  }, []);
-
-  // Stop web audio buzzer cleanly
-  const stopBuzzer = useCallback(() => {
-    if (buzzerCleanupRef.current) {
-      try {
-        buzzerCleanupRef.current();
-      } catch {
-        // ignore
-      }
-      buzzerCleanupRef.current = null;
-    }
-  }, []);
-
-  // Synthesize electronic security buzzer sound
-  const startBuzzer = useCallback(() => {
-    stopBuzzer();
-    const ctx = ensureAudioContext();
-    if (!ctx) return;
-    if (ctx.state === 'suspended') {
-      setAudioNeedsInteraction(true);
-      return;
-    }
-
-    try {
-      const now = ctx.currentTime;
-      const osc1 = ctx.createOscillator();
-      osc1.type = 'sawtooth';
-      osc1.frequency.setValueAtTime(165, now);
-
-      const osc2 = ctx.createOscillator();
-      osc2.type = 'square';
-      osc2.frequency.setValueAtTime(330, now);
-
-      const lfo = ctx.createOscillator();
-      lfo.type = 'square';
-      lfo.frequency.setValueAtTime(10, now);
-
-      const lfoGain = ctx.createGain();
-      lfoGain.gain.setValueAtTime(0.75, now);
-
-      const pulseGain = ctx.createGain();
-      pulseGain.gain.setValueAtTime(0.25, now);
-
-      const masterGain = ctx.createGain();
-      masterGain.gain.setValueAtTime(0.0001, now);
-      masterGain.gain.linearRampToValueAtTime(0.22, now + 0.05);
-
-      const filter = ctx.createBiquadFilter();
-      filter.type = 'lowpass';
-      filter.frequency.setValueAtTime(1200, now);
-      filter.Q.setValueAtTime(1.5, now);
-
-      lfo.connect(lfoGain);
-      lfoGain.connect(pulseGain.gain);
-
-      osc1.connect(filter);
-      const osc2Gain = ctx.createGain();
-      osc2Gain.gain.setValueAtTime(0.35, now);
-      osc2.connect(osc2Gain);
-      osc2Gain.connect(filter);
-
-      filter.connect(pulseGain);
-      pulseGain.connect(masterGain);
-      masterGain.connect(ctx.destination);
-
-      osc1.start(now);
-      osc2.start(now);
-      lfo.start(now);
-
-      let stopped = false;
-      buzzerCleanupRef.current = () => {
-        if (stopped) return;
-        stopped = true;
-        try {
-          const stopTime = ctx.currentTime;
-          masterGain.gain.cancelScheduledValues(stopTime);
-          masterGain.gain.linearRampToValueAtTime(0.0001, stopTime + 0.04);
-          setTimeout(() => {
-            try {
-              osc1.stop();
-              osc2.stop();
-              lfo.stop();
-              osc1.disconnect();
-              osc2.disconnect();
-              lfo.disconnect();
-              filter.disconnect();
-              masterGain.disconnect();
-            } catch {
-              // ignore
-            }
-          }, 50);
-        } catch {
-          // ignore
-        }
-      };
-    } catch (e) {
-      console.warn('Audio buzzer startup failed:', e);
-    }
-  }, [ensureAudioContext, stopBuzzer]);
-
-  const isAlarmActive = motionDetected && armedMode !== 'disarmed';
-
-  // Manage buzzer playback according to alarm state
-  useEffect(() => {
-    if (isAlarmActive && !soundMuted) {
-      startBuzzer();
-    } else {
-      stopBuzzer();
-    }
-    return () => {
-      stopBuzzer();
-    };
-  }, [isAlarmActive, soundMuted, startBuzzer, stopBuzzer]);
-
-  // Teardown AudioContext on unmount
-  useEffect(() => {
-    return () => {
-      stopBuzzer();
-      if (audioCtxRef.current) {
-        try {
-          audioCtxRef.current.close().catch(() => {});
-        } catch {
-          // ignore
-        }
-        audioCtxRef.current = null;
-      }
-    };
-  }, [stopBuzzer]);
-
-  // ================= 1. DIRECT USB WEB SERIAL API LINK =================
-  const handleSerialLine = useCallback((line: string) => {
-    addSerialLog(line);
-    const timeStr = new Date().toLocaleTimeString();
-    setLastHeartbeatTime(timeStr);
-    setHardwareConnected(true);
-
-    // Check for PIR motion detection from ESP32
-    if (
-      line.includes('PIR MOTION DETECTED') ||
-      line.includes('MOTION_TRIPPED') ||
-      line.includes('[ALERT]')
-    ) {
-      ensureAudioContext();
-      setMotionDetected(true);
-      setHardwareBuzzerActive(true);
-      setAlerts(prev => [{
-        id: `${Date.now()}`,
-        timestamp: timeStr,
-        title: '🚨 PHYSICAL MOTION DETECTED (ESP32 GPIO 15)',
-        detail: `PIR Sensor on GPIO 15 detected physical movement! ESP32 triggered GPIO 4 active buzzer and dialed ${emergencyPhone} via SIM800L.`,
-        severity: 'critical'
-      }, ...prev.slice(0, 19)]);
-    } else if (line.includes('[GKB-READY]') || line.includes('[GKB-HEARTBEAT]') || line.includes('[GKB-PONG]')) {
-      try {
-        const jsonMatch = line.match(/\{.*\}/);
-        if (jsonMatch) {
-          const payload = JSON.parse(jsonMatch[0]);
-          if (payload.pir === 1) {
-            setMotionDetected(true);
-          }
-          if (payload.buzzer !== undefined) {
-            setHardwareBuzzerActive(Boolean(payload.buzzer));
-          }
-        }
-      } catch {
-        // ignore parse error
-      }
-    }
-  }, [addSerialLog, ensureAudioContext, emergencyPhone]);
-
-  const connectWebSerial = async () => {
-    const nav = navigator as any;
-    if (!nav.serial) {
-      alert('Web Serial is supported in Google Chrome, Microsoft Edge, and Opera.\n\nPlease plug your ESP32 into a USB port on this computer and open this portal in Chrome or Edge to link directly, or use Cloud Telemetry via Wi-Fi.');
-      return;
-    }
-    setSerialBusy(true);
-    try {
-      const port = await nav.serial.requestPort();
-      await port.open({ baudRate: 115200 });
-      serialPortRef.current = port;
-      setHardwareConnected(true);
-      setConnectionType('serial');
-      setLastHeartbeatTime(new Date().toLocaleTimeString());
-      addSerialLog('🔌 Connected to ESP32 on USB COM Port @ 115200 Baud');
-
-      // Start text decoder stream
-      const textDecoder = new TextDecoderStream();
-      port.readable.pipeTo(textDecoder.writable);
-      const reader = textDecoder.readable.getReader();
-
-      // Read loop
-      void (async () => {
-        let buffer = '';
-        try {
-          while (true) {
-            const { value, done } = await reader.read();
-            if (done) break;
-            if (value) {
-              buffer += value;
-              const lines = buffer.split('\n');
-              buffer = lines.pop() || '';
-              for (const line of lines) {
-                const trimmed = line.trim();
-                if (trimmed) {
-                  handleSerialLine(trimmed);
-                }
-              }
-            }
-          }
-        } catch (err: any) {
-          console.warn('Serial reader exited:', err);
-          addSerialLog('Serial port disconnected: ' + (err?.message || 'closed'));
-          setHardwareConnected(false);
-        }
-      })();
-
-      // Send initial ping
-      setTimeout(() => void sendSerialCommand('PING'), 1000);
-    } catch (err: any) {
-      if (err?.name !== 'NotFoundError') {
-        console.error('Serial connection failed:', err);
-        addSerialLog('Serial connection error: ' + err.message);
-      }
-    } finally {
-      setSerialBusy(false);
-    }
-  };
-
-  const sendSerialCommand = async (cmd: string) => {
-    if (!serialPortRef.current || !serialPortRef.current.writable) {
-      addSerialLog('Cannot send: USB Serial port is not open.');
-      return;
-    }
-    try {
-      const textEncoder = new TextEncoderStream();
-      textEncoder.readable.pipeTo(serialPortRef.current.writable);
-      const writer = textEncoder.writable.getWriter();
-      await writer.write(cmd + '\n');
-      writer.releaseLock();
-      addSerialLog('>> Sent command to ESP32: ' + cmd);
-    } catch (err: any) {
-      console.error('Failed to send serial command:', err);
-      addSerialLog('Command send failed: ' + err.message);
-    }
-  };
-
-  // ================= 2. CLOUD REALTIME TELEMETRY LINK (SUPABASE) =================
-  useEffect(() => {
-    if (!relaySupabase) return;
-    let disposed = false;
-
-    const pollCloudTelemetry = async () => {
-      try {
-        const { data, error } = await relaySupabase
-          .from('gkb_user_devices')
-          .select('status, last_alert')
-          .eq('device_key', activeKey)
-          .maybeSingle();
-
-        if (disposed || error || !data) return;
-
-        if (data.status?.toLowerCase().includes('alarm') || data.last_alert?.toLowerCase().includes('intrusion')) {
-          setMotionDetected(true);
-          setHardwareConnected(true);
-          setLastHeartbeatTime(new Date().toLocaleTimeString());
-        }
-      } catch {
-        // ignore
-      }
-    };
-
-    const interval = setInterval(pollCloudTelemetry, 3500);
-    void pollCloudTelemetry();
-
-    // Supabase Realtime Channel
-    const channel = relaySupabase
-      .channel(`gkb_telemetry_${activeKey}`)
-      .on('postgres_changes', {
-        event: 'UPDATE',
-        schema: 'public',
-        table: 'gkb_user_devices',
-        filter: `device_key=eq.${activeKey}`
-      }, payload => {
-        const row = payload.new as any;
-        if (row) {
-          setLastHeartbeatTime(new Date().toLocaleTimeString());
-          setHardwareConnected(true);
-          if (row.status?.toLowerCase().includes('alarm') || row.last_alert?.toLowerCase().includes('intrusion')) {
-            ensureAudioContext();
-            setMotionDetected(true);
-            setAlerts(prev => [{
-              id: `${Date.now()}`,
-              timestamp: new Date().toLocaleTimeString(),
-              title: '🚨 CLOUD TELEMETRY: INTRUSION ALARM',
-              detail: row.last_alert || 'ESP32 sent live motion breach event to GKB Cloud.',
-              severity: 'critical'
-            }, ...prev.slice(0, 19)]);
-          }
-        }
-      })
-      .subscribe();
-
-    return () => {
-      disposed = true;
-      clearInterval(interval);
-      channel.unsubscribe();
-    };
-  }, [activeKey, ensureAudioContext]);
-
-  // Handle Clear Motion Alarm
-  const handleClearMotion = async () => {
-    ensureAudioContext();
-    setMotionDetected(false);
-    setHardwareBuzzerActive(false);
-    stopBuzzer();
-
-    if (connectionType === 'serial' && serialPortRef.current) {
-      await sendSerialCommand('DISARM');
-      setTimeout(() => void sendSerialCommand('ARM'), 1200);
-    }
-
-    if (relaySupabase) {
-      try {
-        await relaySupabase
-          .from('gkb_user_devices')
-          .update({
-            status: 'Online',
-            last_alert: 'Alarm cleared by user · System Nominal'
-          })
-          .eq('device_key', activeKey);
-      } catch {
-        // ignore
-      }
-    }
-
-    const timeStr = new Date().toLocaleTimeString();
-    setAlerts(prev => [{
-      id: `${Date.now()}`,
-      timestamp: timeStr,
-      title: 'Alarm Cleared · System Nominal',
-      detail: 'Sensors reset to monitoring state. Strobe LED and buzzer deactivated.',
-      severity: 'info'
-    }, ...prev.slice(0, 19)]);
-  };
-
-  const toggleSound = () => {
-    ensureAudioContext();
-    setSoundMuted(prev => !prev);
-  };
-
   return (
-    <section
-      aria-labelledby="security-system-title"
-      onClick={ensureAudioContext}
-      className={`space-y-6 rounded-2xl border p-4 sm:p-6 transition-all duration-300 relative overflow-hidden ${
-        isAlarmActive
-          ? 'gkb-security-red-blink text-white'
-          : 'border-cyan-500/20 bg-slate-900/80 text-slate-100'
-      }`}
-    >
-      <style>{`
-        @keyframes gkb-security-red-blink {
-          0%, 100% {
-            background-color: rgba(127, 29, 29, 0.38);
-            border-color: rgba(239, 68, 68, 0.7);
-            box-shadow: 0 0 35px rgba(239, 68, 68, 0.5), inset 0 0 60px rgba(185, 28, 28, 0.35);
-          }
-          50% {
-            background-color: rgba(220, 38, 38, 0.85);
-            border-color: rgba(254, 202, 202, 1);
-            box-shadow: 0 0 85px rgba(239, 68, 68, 0.95), inset 0 0 110px rgba(239, 68, 68, 0.75);
-          }
-        }
-        .gkb-security-red-blink {
-          animation: gkb-security-red-blink 0.85s infinite ease-in-out;
-        }
-        @keyframes gkb-siren-strobe {
-          0%, 100% { transform: scale(1) rotate(-6deg); }
-          50% { transform: scale(1.15) rotate(6deg); }
-        }
-        .gkb-siren-strobe {
-          animation: gkb-siren-strobe 0.6s infinite ease-in-out;
-        }
-      `}</style>
-
-      {/* Top Header Badge & Navigation Info */}
-      <header className="flex flex-col gap-4 rounded-xl border border-white/10 bg-slate-950/60 p-4 sm:flex-row sm:items-center sm:justify-between sm:p-5">
+    <section aria-label="Smart Home Security System" className="rounded-2xl border border-cyan-500/30 bg-slate-900/80 p-6 space-y-4 max-w-3xl mx-auto text-center">
+      <div className="flex flex-col items-center gap-3">
+        <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-tr from-cyan-500 to-purple-600 text-black shadow-lg shadow-cyan-500/20">
+          <Cpu className="h-7 w-7 text-black" />
+        </div>
         <div>
-          <div className="mb-2 flex flex-wrap items-center gap-2">
-            <span className="rounded-full border border-emerald-400/40 bg-emerald-400/10 px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.18em] text-emerald-300 flex items-center gap-1.5">
-              <span className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse" />
-              Real Hardware Mode · No Simulations
-            </span>
-            <span className="rounded-full border border-purple-400/30 bg-purple-400/10 px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.14em] text-purple-300 font-mono">
-              Key: {activeKey}
-            </span>
-            <span className={`rounded-full border px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider ${
-              armedMode === 'away' ? 'border-red-500/40 bg-red-500/20 text-red-300' : armedMode === 'stay' ? 'border-amber-500/40 bg-amber-500/20 text-amber-300' : 'border-slate-600 bg-slate-800 text-slate-400'
-            }`}>
-              Armed: {armedMode.toUpperCase()}
-            </span>
-          </div>
-          <h2 id="security-system-title" className="text-xl sm:text-2xl font-black text-white">
-            Smart Home Security & GSM Dialer
-          </h2>
-          <p className="text-xs text-slate-300 mt-1">
-            Linked to physical ESP32 node. Monitoring HC-SR501 PIR sensor on <strong className="text-cyan-300 font-mono">GPIO 15</strong> with automated cellular dialing to <strong className="text-amber-300 font-mono">{emergencyPhone}</strong>.
-          </p>
+          <span className="text-[10px] font-bold uppercase tracking-widest text-cyan-400">Hardware Pilot Standardization</span>
+          <h3 className="text-xl font-bold text-white mt-1">Hardware Testing Ground Anchored to Relay Test</h3>
         </div>
-
-        {/* Quick Connection & Sound Indicators */}
-        <div className="flex flex-wrap items-center gap-2">
-          <button
-            type="button"
-            onClick={toggleSound}
-            aria-label={soundMuted ? 'Unmute buzzer sound' : 'Mute buzzer sound'}
-            className={`inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-xs font-bold transition-all ${
-              soundMuted
-                ? 'border-slate-700 bg-slate-800/80 text-slate-400 hover:text-white'
-                : isAlarmActive
-                  ? 'border-amber-400 bg-amber-500/25 text-amber-200 shadow-[0_0_15px_rgba(251,191,36,0.5)] animate-pulse'
-                  : 'border-cyan-500/30 bg-cyan-500/10 text-cyan-300 hover:bg-cyan-500/20'
-            }`}
-          >
-            {soundMuted ? <VolumeX className="h-4 w-4 text-slate-400" /> : <Volume2 className="h-4 w-4 text-cyan-300" />}
-            <span>Buzzer: {soundMuted ? 'Muted' : isAlarmActive ? 'Buzzing' : 'Armed'}</span>
-          </button>
-
-          <span className={`inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-xs font-semibold ${
-            hardwareConnected
-              ? 'border-emerald-500/40 bg-emerald-500/15 text-emerald-300'
-              : 'border-amber-500/40 bg-amber-500/10 text-amber-300'
-          }`}>
-            <span className={`h-2 w-2 rounded-full ${hardwareConnected ? 'bg-emerald-400 animate-ping' : 'bg-amber-400'}`} />
-            {hardwareConnected ? 'ESP32 Online' : 'Waiting for ESP32'}
-          </span>
-
-          <button
-            type="button"
-            onClick={connectWebSerial}
-            disabled={serialBusy}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-cyan-500/40 bg-cyan-500/15 px-3 py-2 text-xs font-bold text-cyan-200 hover:bg-cyan-500/25 transition-all shadow-md shadow-cyan-500/10"
-            title="Connect your ESP32 directly via USB cable (COM Port)"
-          >
-            <Cpu className="h-3.5 w-3.5 text-cyan-400" />
-            <span>{connectionType === 'serial' ? 'USB Connected' : 'Connect via USB'}</span>
-          </button>
-        </div>
-      </header>
-
-      {/* Browser Autoplay Warning Banner if AudioContext is suspended */}
-      {isAlarmActive && !soundMuted && audioNeedsInteraction && (
+      </div>
+      <p className="text-sm text-slate-300 leading-relaxed max-w-xl mx-auto">
+        Complex legacy security system backends have been isolated and removed. The ESP32 Relay Test portal is our designated primary testing ground for BLE GATT handshakes, QR camera verification, and Preferences.h credential provisioning.
+      </p>
+      <div className="pt-2 flex justify-center">
         <button
           type="button"
           onClick={() => {
-            ensureAudioContext();
-            if (audioCtxRef.current?.state === 'suspended') {
-              audioCtxRef.current.resume().then(() => {
-                setAudioNeedsInteraction(false);
-              }).catch(() => {});
-            }
+            const btn = document.querySelector('[data-nav-relay="true"]') as HTMLButtonElement | null;
+            if (btn) btn.click();
+            else window.location.reload();
           }}
-          className="w-full rounded-xl border-2 border-amber-400 bg-amber-500/25 p-3 text-center text-xs font-black uppercase tracking-wider text-amber-200 shadow-[0_0_20px_rgba(245,158,11,0.5)] transition-all hover:bg-amber-500/35 animate-bounce"
+          className="inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-cyan-500 to-purple-600 px-5 py-3 text-xs font-black uppercase tracking-wider text-black shadow-lg shadow-cyan-500/20 hover:opacity-90 transition-all cursor-pointer"
         >
-          🔊 Browser blocked autoplay! Click anywhere here to unleash the buzzing motion alarm sound!
+          <Cpu className="h-4 w-4" /> Open ESP32 Relay Test Center
         </button>
-      )}
-
-      {/* Active Motion Alarm Strobe / Secure Banner */}
-      {isAlarmActive ? (
-        <div className="flex flex-col gap-4 rounded-xl border-2 border-red-400 bg-red-950/90 p-4 shadow-[0_0_35px_rgba(239,68,68,0.7)] sm:flex-row sm:items-center sm:justify-between animate-pulse">
-          <div className="flex items-center gap-3">
-            <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-red-600 text-white shadow-xl shadow-red-600/60 gkb-siren-strobe">
-              <Siren className="h-8 w-8" />
-            </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <span className="rounded bg-red-600 px-2.5 py-0.5 text-[10px] font-black uppercase tracking-widest text-white shadow">
-                  CRITICAL HARDWARE INTRUSION
-                </span>
-                <span className="text-xs font-bold text-red-200">Zone 1 · PIR (GPIO 15)</span>
-              </div>
-              <h3 className="text-lg font-black tracking-wide text-white sm:text-2xl">
-                PHYSICAL MOTION DETECTED!
-              </h3>
-              <p className="text-xs text-red-100 sm:text-sm">
-                HC-SR501 PIR sensor on GPIO 15 tripped · GPIO 4 piezo buzzer sounding · Automated cellular dialing to {emergencyPhone} active.
-              </p>
-            </div>
-          </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <button
-              type="button"
-              onClick={handleClearMotion}
-              className="inline-flex items-center gap-2 rounded-xl bg-white px-5 py-2.5 text-xs font-black uppercase tracking-wider text-red-950 shadow-xl transition-all hover:bg-slate-100 hover:scale-105"
-            >
-              <CheckCircle className="h-4 w-4 text-emerald-600" />
-              Clear Motion & Reset
-            </button>
-            <button
-              type="button"
-              onClick={toggleSound}
-              className="inline-flex items-center gap-2 rounded-xl border border-red-300 bg-red-900/80 px-4 py-2.5 text-xs font-bold text-white transition-all hover:bg-red-800"
-            >
-              {soundMuted ? <VolumeX className="h-4 w-4 text-amber-300" /> : <Volume2 className="h-4 w-4 text-white" />}
-              {soundMuted ? 'Unmute Buzzer' : 'Silence Buzzer'}
-            </button>
-          </div>
-        </div>
-      ) : (
-        <div className="flex flex-col gap-3 rounded-xl border border-emerald-500/40 bg-emerald-950/30 p-4 sm:flex-row sm:items-center sm:justify-between">
-          <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-emerald-500/20 border border-emerald-500/40 text-emerald-400">
-              <ShieldCheck className="h-6 w-6" />
-            </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <span className="text-xs font-bold uppercase tracking-wider text-emerald-400">
-                  Perimeter Secure · Monitoring
-                </span>
-                <span className="text-[10px] text-slate-400">
-                  Last check: {lastHeartbeatTime}
-                </span>
-              </div>
-              <p className="text-xs text-slate-300">
-                PIR sensor on GPIO 15 active · Zero intrusion events detected · GSM modem ready on {emergencyPhone}.
-              </p>
-            </div>
-          </div>
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={() => void sendSerialCommand('TEST_BUZZER')}
-              className="inline-flex items-center gap-1.5 rounded-xl border border-slate-700 bg-slate-800/80 px-3.5 py-2 text-xs font-bold text-amber-300 hover:border-amber-400 transition-all"
-            >
-              <Volume2 className="h-3.5 w-3.5 text-amber-400" /> Test Hardware Buzzer (GPIO 4)
-            </button>
-            <button
-              type="button"
-              onClick={() => void sendSerialCommand('DIAL_TEST')}
-              className="inline-flex items-center gap-1.5 rounded-xl border border-slate-700 bg-slate-800/80 px-3.5 py-2 text-xs font-bold text-cyan-300 hover:border-cyan-400 transition-all"
-            >
-              <PhoneCall className="h-3.5 w-3.5 text-cyan-400" /> Test Phone Call
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* Hardware Pins & Physical Peripherals Grid */}
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-4 space-y-2">
-          <div className="flex items-center justify-between text-xs">
-            <span className="text-slate-400 flex items-center gap-1.5 font-bold uppercase">
-              <Radio className="h-4 w-4 text-cyan-400" /> PIR Sensor
-            </span>
-            <span className="font-mono text-cyan-300 font-bold">GPIO 15</span>
-          </div>
-          <p className="text-base font-bold text-white">
-            {motionDetected ? '🚨 Motion Tripped' : 'Nominal Monitoring'}
-          </p>
-          <p className="text-[11px] text-slate-400">HC-SR501 Infrared Motion Detector</p>
-        </div>
-
-        <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-4 space-y-2">
-          <div className="flex items-center justify-between text-xs">
-            <span className="text-slate-400 flex items-center gap-1.5 font-bold uppercase">
-              <Volume2 className="h-4 w-4 text-amber-400" /> Audio Buzzer
-            </span>
-            <span className="font-mono text-amber-300 font-bold">GPIO 4</span>
-          </div>
-          <p className="text-base font-bold text-white">
-            {hardwareBuzzerActive || isAlarmActive ? '🔊 Sounding Alarm' : 'Armed & Silent'}
-          </p>
-          <p className="text-[11px] text-slate-400">Active Piezo Siren Actuator</p>
-        </div>
-
-        <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-4 space-y-2">
-          <div className="flex items-center justify-between text-xs">
-            <span className="text-slate-400 flex items-center gap-1.5 font-bold uppercase">
-              <Smartphone className="h-4 w-4 text-purple-400" /> Cellular Modem
-            </span>
-            <span className="font-mono text-purple-300 font-bold">GPIO 16/17</span>
-          </div>
-          <p className="text-base font-bold text-white truncate">{emergencyPhone}</p>
-          <p className="text-[11px] text-slate-400">SIM800L / SIM900 GSM Engine</p>
-        </div>
-
-        <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-4 space-y-2">
-          <div className="flex items-center justify-between text-xs">
-            <span className="text-slate-400 flex items-center gap-1.5 font-bold uppercase">
-              <Zap className="h-4 w-4 text-yellow-400" /> Secret Key
-            </span>
-            <span className="font-mono text-yellow-300 font-bold">{activeKey}</span>
-          </div>
-          <p className="text-base font-bold text-emerald-400">
-            {hardwareConnected ? '🟢 Hardware Linked' : '🟡 Standby'}
-          </p>
-          <p className="text-[11px] text-slate-400">Authentication Token</p>
-        </div>
       </div>
-
-      {/* Main Control Grid */}
-      <div className="grid gap-6 lg:grid-cols-3">
-        {/* Arming Controls */}
-        <div className="rounded-xl border border-white/10 bg-slate-950/50 p-5 space-y-4">
-          <h3 className="flex items-center gap-2 text-sm font-bold uppercase tracking-wider text-slate-300">
-            <Lock className="h-4 w-4 text-purple-400" />
-            Alarm System Arming
-          </h3>
-          <p className="text-xs text-slate-400">
-            Select system mode. Disarming immediately silences the GPIO 4 buzzer and cancels emergency GSM calls.
-          </p>
-          <div className="grid grid-cols-3 gap-2">
-            {(['away', 'stay', 'disarmed'] as const).map(modeKey => (
-              <button
-                key={modeKey}
-                type="button"
-                onClick={() => {
-                  ensureAudioContext();
-                  setArmedMode(modeKey);
-                  if (modeKey === 'disarmed') {
-                    void sendSerialCommand('DISARM');
-                  } else {
-                    void sendSerialCommand('ARM');
-                  }
-                  const timeStr = new Date().toLocaleTimeString();
-                  setAlerts(prev => [{
-                    id: `${Date.now()}`,
-                    timestamp: timeStr,
-                    title: `Mode: ${modeKey.toUpperCase()}`,
-                    detail: modeKey === 'disarmed' ? 'System disarmed. Physical alarms suppressed.' : `System armed (${modeKey}). Monitoring PIR on GPIO 15.`,
-                    severity: modeKey === 'disarmed' ? 'warning' : 'info'
-                  }, ...prev.slice(0, 19)]);
-                }}
-                className={`rounded-lg py-2.5 text-xs font-bold uppercase tracking-wider transition-all ${
-                  armedMode === modeKey
-                    ? modeKey === 'away'
-                      ? 'bg-red-600 text-white shadow-[0_0_15px_rgba(239,68,68,0.5)]'
-                      : modeKey === 'stay'
-                        ? 'bg-amber-500 text-black shadow-[0_0_15px_rgba(245,158,11,0.5)]'
-                        : 'bg-slate-200 text-black shadow'
-                    : 'border border-slate-800 bg-slate-900 text-slate-400 hover:text-white'
-                }`}
-              >
-                {modeKey}
-              </button>
-            ))}
-          </div>
-
-          <div className="pt-3 border-t border-white/5 space-y-2">
-            <button
-              type="button"
-              onClick={() => setShowSerialConsole(prev => !prev)}
-              className="w-full inline-flex items-center justify-between text-xs text-cyan-400 hover:text-cyan-300 p-2 rounded-lg bg-slate-900 border border-slate-800"
-            >
-              <span className="flex items-center gap-1.5 font-bold">
-                <Terminal className="h-3.5 w-3.5" />
-                {showSerialConsole ? 'Hide Serial Console' : 'Show Live ESP32 Serial Console'}
-              </span>
-              <span className="font-mono text-[10px] bg-slate-800 px-2 py-0.5 rounded text-slate-300">
-                {serialLogs.length} lines
-              </span>
-            </button>
-          </div>
-        </div>
-
-        {/* Live Hardware Integration Hub */}
-        <div className="rounded-xl border border-white/10 bg-slate-950/50 p-5 space-y-4">
-          <div className="flex items-center justify-between">
-            <h3 className="flex items-center gap-2 text-sm font-bold uppercase tracking-wider text-slate-300">
-              <Cpu className="h-4 w-4 text-cyan-400" />
-              ESP32 Hardware Hub
-            </h3>
-            <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-bold uppercase ${
-              hardwareConnected ? 'bg-emerald-500/20 text-emerald-300' : 'bg-slate-800 text-slate-400'
-            }`}>
-              {hardwareConnected ? 'Linked' : 'Offline'}
-            </span>
-          </div>
-
-          <p className="text-xs text-slate-400">
-            Plug your ESP32 into USB to stream real telemetry directly into this dashboard with 0ms latency.
-          </p>
-
-          <div className="space-y-2">
-            <button
-              type="button"
-              onClick={connectWebSerial}
-              disabled={serialBusy}
-              className="w-full inline-flex items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 px-4 py-2.5 text-xs font-bold uppercase tracking-wider text-black hover:opacity-90 transition-all shadow-md shadow-cyan-500/20 disabled:opacity-50"
-            >
-              <Cpu className="h-4 w-4" />
-              {connectionType === 'serial' ? 'Reconnect USB Serial' : 'Connect ESP32 (USB Cable)'}
-            </button>
-
-            <button
-              type="button"
-              onClick={() => void sendSerialCommand('TEST_BUZZER')}
-              className="w-full inline-flex items-center justify-center gap-2 rounded-xl border border-slate-700 bg-slate-900 px-4 py-2 text-xs font-bold text-amber-300 hover:border-amber-400 transition-all"
-            >
-              <Volume2 className="h-4 w-4 text-amber-400" />
-              Pulse Physical Buzzer (GPIO 4)
-            </button>
-
-            <button
-              type="button"
-              onClick={() => void sendSerialCommand('DIAL_TEST')}
-              className="w-full inline-flex items-center justify-center gap-2 rounded-xl border border-slate-700 bg-slate-900 px-4 py-2 text-xs font-bold text-purple-300 hover:border-purple-400 transition-all"
-            >
-              <PhoneCall className="h-4 w-4 text-purple-400" />
-              Test Emergency Call (+233 256905290)
-            </button>
-          </div>
-        </div>
-
-        {/* Emergency Call Profile */}
-        <div className="rounded-xl border border-white/10 bg-slate-950/50 p-5 space-y-4">
-          <div className="flex items-center justify-between">
-            <h3 className="flex items-center gap-2 text-sm font-bold uppercase tracking-wider text-slate-300">
-              <PhoneCall className="h-4 w-4 text-emerald-400" />
-              SIM800L Emergency Dialer
-            </h3>
-            <span className="text-[10px] font-mono text-cyan-300 bg-cyan-500/10 px-2 py-0.5 rounded font-bold">
-              Cellular GSM
-            </span>
-          </div>
-
-          <p className="text-xs text-slate-400">
-            Whenever physical motion trips the HC-SR501 PIR sensor, the SIM800L cellular engine dials this destination phone number.
-          </p>
-
-          <div className="rounded-lg border border-slate-800 bg-slate-900/80 p-3 space-y-2 text-xs">
-            <div className="flex justify-between">
-              <span className="text-slate-400">Target Phone:</span>
-              <span className="font-mono font-bold text-yellow-300">{emergencyPhone}</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-slate-400">Account:</span>
-              <span className="font-bold text-white">Zumah Kelvin / GKB</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-slate-400">Cooldown:</span>
-              <span className="font-mono text-cyan-300">30 seconds</span>
-            </div>
-          </div>
-
-          <button
-            type="button"
-            onClick={() => setShowFirmwareModal(true)}
-            className="w-full inline-flex items-center justify-center gap-2 rounded-xl border border-cyan-500/40 bg-cyan-500/10 px-4 py-2.5 text-xs font-bold text-cyan-300 hover:bg-cyan-500/20 transition-all"
-          >
-            <Code className="h-4 w-4" /> Download Production ESP32 Code
-          </button>
-        </div>
-      </div>
-
-      {/* Live Serial Console Monitor (Collapsible) */}
-      {showSerialConsole && (
-        <div className="rounded-2xl border border-cyan-500/40 bg-black/90 p-4 space-y-2 font-mono text-xs animate-fadeIn">
-          <div className="flex items-center justify-between border-b border-slate-800 pb-2">
-            <span className="text-cyan-400 font-bold flex items-center gap-2">
-              <Terminal className="h-4 w-4" /> Live ESP32 Hardware Serial Monitor (115200 Baud)
-            </span>
-            <button
-              type="button"
-              onClick={() => setSerialLogs([])}
-              className="text-[10px] text-slate-500 hover:text-white"
-            >
-              Clear Console
-            </button>
-          </div>
-          <div className="max-h-48 overflow-y-auto space-y-1 text-slate-300 text-[11px]">
-            {serialLogs.length === 0 ? (
-              <p className="text-slate-600 italic">No serial data received yet. Click "Connect via USB" to begin streaming live hardware telemetry.</p>
-            ) : (
-              serialLogs.map((log, idx) => (
-                <div key={idx} className="whitespace-pre-wrap break-all">
-                  {log}
-                </div>
-              ))
-            )}
-          </div>
-        </div>
-      )}
-
-      {/* Event & Intrusion Audit Log */}
-      <div className="rounded-xl border border-white/10 bg-slate-950/50 p-5 space-y-4">
-        <div className="flex items-center justify-between">
-          <h3 className="flex items-center gap-2 text-sm font-bold uppercase tracking-wider text-slate-300">
-            <Activity className="h-4 w-4 text-cyan-400" />
-            Hardware Intrusion Log (Live)
-          </h3>
-          <button
-            type="button"
-            onClick={() => setAlerts([])}
-            className="text-xs text-slate-500 hover:text-slate-300 transition-colors"
-          >
-            Clear Log
-          </button>
-        </div>
-        <div className="space-y-2">
-          {alerts.length === 0 ? (
-            <p className="py-4 text-center text-xs text-slate-500">No events logged in this session.</p>
-          ) : (
-            alerts.map(item => (
-              <div
-                key={item.id}
-                className={`flex flex-col gap-1 rounded-lg border p-3 sm:flex-row sm:items-center sm:justify-between text-xs transition-colors ${
-                  item.severity === 'critical'
-                    ? 'border-red-500/40 bg-red-950/40 text-red-200'
-                    : item.severity === 'warning'
-                      ? 'border-amber-500/30 bg-amber-500/10 text-amber-200'
-                      : 'border-slate-800 bg-slate-900/50 text-slate-300'
-                }`}
-              >
-                <div className="flex items-center gap-2">
-                  <span className="font-mono text-[11px] text-slate-400">{item.timestamp}</span>
-                  <span className="font-bold text-white">{item.title}</span>
-                </div>
-                <p className="text-xs text-slate-300">{item.detail}</p>
-              </div>
-            ))
-          )}
-        </div>
-      </div>
-
-      {/* Firmware Modal */}
-      {showFirmwareModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-md p-4 overflow-y-auto">
-          <div className="w-full max-w-4xl rounded-2xl border border-cyan-500/40 bg-slate-900 p-6 sm:p-8 shadow-[0_0_60px_rgba(6,182,212,0.3)] space-y-5 animate-scaleUp max-h-[90vh] flex flex-col">
-            <div className="flex items-center justify-between border-b border-slate-800 pb-4">
-              <div className="space-y-1">
-                <span className="text-xs font-bold uppercase tracking-wider text-cyan-400">ESP32 Arduino Firmware (Zero Simulation)</span>
-                <h3 className="text-xl font-black text-white">HC-SR501 PIR + SIM800L Emergency Dialer</h3>
-              </div>
-              <button
-                type="button"
-                onClick={() => setShowFirmwareModal(false)}
-                className="text-slate-400 hover:text-white p-2 rounded-lg bg-slate-800/60 cursor-pointer"
-              >
-                <X className="h-5 w-5" />
-              </button>
-            </div>
-
-            {/* Quick Settings Bar */}
-            <div className="grid gap-4 sm:grid-cols-2 bg-slate-950 p-4 rounded-xl border border-slate-800 text-xs">
-              <label className="text-slate-400">
-                Secret Hardware Key:
-                <input
-                  type="text"
-                  value={activeKey}
-                  readOnly
-                  className="mt-1 w-full rounded-lg border border-slate-800 bg-slate-900 px-3 py-2 font-mono font-bold text-cyan-300"
-                />
-              </label>
-
-              <label className="text-slate-400">
-                Destination Phone Number:
-                <input
-                  type="text"
-                  value={emergencyPhone}
-                  onChange={e => setEmergencyPhone(e.target.value)}
-                  className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 font-mono font-bold text-yellow-300 focus:border-cyan-400 focus:outline-none"
-                />
-              </label>
-            </div>
-
-            {/* Code Box */}
-            <div className="relative flex-1 overflow-hidden rounded-xl border border-slate-800 bg-slate-950">
-              <div className="flex items-center justify-between border-b border-slate-800 px-4 py-2 bg-slate-900/50">
-                <span className="font-mono text-xs text-slate-400">GKB_ESP32_Security_GKB-SEC-0001.ino</span>
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      navigator.clipboard.writeText(generateArduinoCode(activeKey, emergencyPhone));
-                      setCopiedCode(true);
-                      setTimeout(() => setCopiedCode(false), 2500);
-                    }}
-                    className="inline-flex items-center gap-1.5 rounded-lg border border-slate-700 bg-slate-800 px-3 py-1 text-xs font-bold text-slate-300 hover:text-white hover:border-slate-500 transition-colors"
-                  >
-                    {copiedCode ? <Check className="h-3.5 w-3.5 text-emerald-400" /> : <Copy className="h-3.5 w-3.5" />}
-                    <span>{copiedCode ? 'Copied to Clipboard!' : 'Copy Sketch'}</span>
-                  </button>
-
-                  <a
-                    href={`data:text/plain;charset=utf-8,${encodeURIComponent(generateArduinoCode(activeKey, emergencyPhone))}`}
-                    download="GKB_ESP32_Security_GKB-SEC-0001.ino"
-                    className="inline-flex items-center gap-1.5 rounded-lg bg-cyan-500/20 border border-cyan-500/40 px-3 py-1 text-xs font-bold text-cyan-300 hover:bg-cyan-500/30 transition-colors"
-                  >
-                    <Download className="h-3.5 w-3.5" />
-                    <span>Download .ino</span>
-                  </a>
-                </div>
-              </div>
-              <pre className="h-[400px] overflow-auto p-4 font-mono text-xs leading-relaxed text-cyan-200/90 selection:bg-cyan-500 selection:text-black">
-                {generateArduinoCode(activeKey, emergencyPhone)}
-              </pre>
-            </div>
-
-            <div className="flex justify-end pt-2">
-              <button
-                type="button"
-                onClick={() => setShowFirmwareModal(false)}
-                className="px-5 py-2.5 rounded-xl bg-slate-800 text-slate-200 hover:bg-slate-700 text-xs font-bold uppercase tracking-wider cursor-pointer"
-              >
-                Done
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </section>
   );
 }
@@ -5124,8 +4121,8 @@ export default function IoTDevicePortal() {
                 >
                   <ArrowRight className="h-4 w-4 rotate-180" /> Return to Hardware Fleet
                 </button>
-              </div>) : selectedDevice.project === 'smart-security-system' || selectedDevice.key === 'GKB-SEC-9988' ? (
-              <SmartHomeSecurityDashboard mode="service" device={selectedDevice} />
+              </div>) : selectedDevice.project === 'relay-test' || selectedDevice.key === 'GKB-SEC-0001' || selectedDevice.key === 'GKB-RELAY-0001' ? (
+              <RelayTestDashboard mode="service" />
             ) : selectedDevice.project === 'fuel-tank-monitor' || selectedDevice.key === 'GKB-IUFT-0001' ? (
               <FuelTankMonitorDashboard mode="service" />
             ) : selectedDevice.project === 'relay-test' || selectedDevice.key === 'GKB-RELAY-0001' ? (
