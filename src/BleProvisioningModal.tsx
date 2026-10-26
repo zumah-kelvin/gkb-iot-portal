@@ -541,21 +541,6 @@ export default function BleProvisioningModal({
                       GKB-RELAY-0001
                     </button>
                   )}
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setDeviceKeyInput('GKB-SEC-0001');
-                      if (!rxChar) {
-                        setStep('wifi_config');
-                        addLog('✅ Verified token GKB-SEC-0001 (Simulated).');
-                      } else {
-                        sendKeyVerification('GKB-SEC-0001');
-                      }
-                    }}
-                    className="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-400 font-mono text-[11px] font-bold border border-slate-700 cursor-pointer"
-                  >
-                    GKB-SEC-0001 (Legacy)
-                  </button>
                 </div>
               </div>
             </form>
@@ -568,29 +553,17 @@ export default function BleProvisioningModal({
                 </div>
                 {(verifyError.includes('mismatch') || verifyError.includes('failed') || verifyError.includes('Authentication failed')) && (
                   <div className="border-t border-red-500/20 pt-2 flex flex-wrap items-center justify-between gap-2">
-                    <span className="text-[11px] text-slate-300">Casing token mismatch? Try standard keys:</span>
-                    <div className="flex gap-1.5">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setDeviceKeyInput('GKB-RELAY-0001');
-                          void sendKeyVerification('GKB-RELAY-0001');
-                        }}
-                        className="px-2 py-0.5 rounded bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-300 font-mono text-[11px] font-bold border border-cyan-500/40 cursor-pointer"
-                      >
-                        GKB-RELAY-0001
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setDeviceKeyInput('GKB-SEC-0001');
-                          void sendKeyVerification('GKB-SEC-0001');
-                        }}
-                        className="px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 font-mono text-[11px] font-bold border border-slate-700 cursor-pointer"
-                      >
-                        GKB-SEC-0001
-                      </button>
-                    </div>
+                    <span className="text-[11px] text-slate-300">Casing token mismatch? Try relay key:</span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setDeviceKeyInput('GKB-RELAY-0001');
+                        void sendKeyVerification('GKB-RELAY-0001');
+                      }}
+                      className="px-2.5 py-1 rounded bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-300 font-mono text-[11px] font-bold border border-cyan-500/40 cursor-pointer"
+                    >
+                      Use GKB-RELAY-0001
+                    </button>
                   </div>
                 )}
               </div>
