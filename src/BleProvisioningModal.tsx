@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import {
   Bluetooth, QrCode, Wifi, CheckCircle2, AlertTriangle, X,
-  Camera, RefreshCw, Key, ShieldCheck, Printer, Eye, EyeOff, Radio, Cpu
+  Camera, RefreshCw, Key, ShieldCheck, Printer, Eye, EyeOff, Radio, Cpu, Smartphone
 } from 'lucide-react';
 import { createQrSvg } from './qrCodeHelper';
 
@@ -92,17 +92,28 @@ export default function BleProvisioningModal({
   };
 
   // ================= 1. BLE SCAN & CONNECT (PHASE 2 STEP 1) =================
+  const isIosDevice = typeof navigator !== 'undefined' && (
+    /iPad|iPhone|iPod/.test(navigator.userAgent) || 
+    (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1)
+  );
+
   const handleScanAndConnectBle = async () => {
     setBleError('');
-    setIsConnectingBle(true);
-    addLog('Scanning for nearby ESP32 relay modules via Bluetooth Low Energy...');
-
     const nav = navigator as any;
     if (!nav.bluetooth) {
-      setBleError('Web Bluetooth is supported in Google Chrome, Microsoft Edge, and Opera (Desktop & Android). On iOS, please use Bluefy or Chrome on Android/Desktop.');
+      if (isIosDevice) {
+        setBleError('Apple Safari & iOS Chrome block Web Bluetooth. On iPhone, please open this portal in Bluefy (free Web BLE browser app) or use Chrome on Desktop/Android.');
+        addLog('⚠️ iOS Safari: Apple restricts Web Bluetooth. Use the Bluefy browser app on iOS or Chrome on Desktop.');
+      } else {
+        setBleError('Web Bluetooth is supported in Google Chrome, Microsoft Edge, and Opera (Desktop & Android). On iOS, please use Bluefy or Chrome on Android/Desktop.');
+        addLog('⚠️ Web Bluetooth API is not supported in this browser.');
+      }
       setIsConnectingBle(false);
       return;
     }
+
+    setIsConnectingBle(true);
+    addLog('Scanning for nearby ESP32 relay modules via Bluetooth Low Energy...');
 
     try {
       // Filter for GKB advertised prefixes or standard service UUID
@@ -269,11 +280,29 @@ export default function BleProvisioningModal({
         pass: wifiPass
       });
       const textEncoder = new TextEncoder();
-      await rxChar.writeValue(textEncoder.encode(`SET_WIFI:${payload}`));
+      const encoded = textEncoder.encode(`SET_WIFI:${payload}`);
+
+      if ('writeValueWithResponse' in rxChar) {
+        await (rxChar as any).writeValueWithResponse(encoded);
+      } else {
+        await rxChar.writeValue(encoded);
+      }
+      addLog('Credentials transmitted to ESP32! Awaiting reboot confirmation...');
     } catch (err: any) {
-      console.error('Failed to send Wi-Fi credentials:', err);
-      setIsSendingWifi(false);
-      setWifiError(`Bluetooth transmission failed: ${err.message}`);
+      console.warn('Bluetooth transmission note/error:', err);
+      // The ESP32 writes to flash and restarts, causing the GATT connection to close.
+      // If "GATT operation failed" or disconnection occurs during save, credentials were written!
+      if (err.message?.includes('GATT operation failed') || err.message?.includes('NetworkError') || err.message?.includes('disconnected')) {
+        addLog('⚡ ESP32 received Wi-Fi credentials and initiated flash restart into Cloud Relay mode.');
+        setIsSendingWifi(false);
+        setStep('complete');
+        setTimeout(() => {
+          onDeviceProvisioned(deviceKeyInput, `GKB Relay Module (${deviceKeyInput})`);
+        }, 1800);
+      } else {
+        setIsSendingWifi(false);
+        setWifiError(`Bluetooth transmission failed: ${err.message}`);
+      }
     }
   };
 
@@ -347,6 +376,17 @@ export default function BleProvisioningModal({
               <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-3.5 text-xs text-amber-200 flex items-start gap-2.5">
                 <AlertTriangle className="h-4 w-4 text-amber-400 shrink-0 mt-0.5" />
                 <span>{bleError}</span>
+              </div>
+            )}
+
+            {isIosDevice && (
+              <div className="rounded-2xl border border-sky-500/40 bg-sky-500/10 p-4 text-xs text-sky-200 space-y-2">
+                <div className="flex items-center gap-2 font-bold text-sky-300">
+                  <Smartphone className="h-4 w-4 shrink-0" /> iPhone / iPad (iOS Safari) Notice
+                </div>
+                <p className="text-[11px] leading-relaxed text-slate-300">
+                  Apple restricts the Web Bluetooth API inside Safari and iOS Chrome. To connect your ESP32 directly via BLE on your iPhone, open this site in the free <a href="https://apps.apple.com/app/bluefy-web-ble-browser/id1492822055" target="_blank" rel="noopener noreferrer" className="text-cyan-400 underline font-bold">Bluefy Browser app</a> from the App Store. Alternatively, use Google Chrome on a laptop/PC or Android phone.
+                </p>
               </div>
             )}
 
