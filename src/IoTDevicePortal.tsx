@@ -2,11 +2,13 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import type { Session } from '@supabase/supabase-js';
 import { relayControlEnabled, relaySupabase, relaySupabaseConfigError } from './supabase';
 import BleProvisioningModal from './BleProvisioningModal';
+import LightControlDashboard from './LightControlDashboard';
 import {
   Cpu, Shield, Wrench, Phone, Mail, Globe,
   User, Lock, LogOut, CheckCircle, AlertTriangle,
   ArrowRight, Sun, Moon, Zap, Wifi, Radio, Key,
-  Copy, Download, Code, Check, Printer, Bluetooth, QrCode, X, RefreshCw
+  Copy, Download, Code, Check, Printer, Bluetooth, QrCode, X, RefreshCw,
+  Layers, Lightbulb, Power, Droplets, Fuel, Gauge, Wind, FlaskConical
 } from 'lucide-react';
 
 type UserType = {
@@ -19,30 +21,112 @@ type UserType = {
   location: string;
 };
 
-type Device = {
+export type StudentProject =
+  | 'relay-test'
+  | 'light-control'
+  | 'water-tank-monitor'
+  | 'fuel-tank-monitor'
+  | 'prepaid-energy-meter'
+  | 'fan-regulator'
+  | 'alcohol-breathalyzer';
+
+export type Device = {
   id: number;
   name: string;
   key: string;
   status: string;
   lastAlert: string;
-  project?: 'relay-test';
+  project?: StudentProject;
   legacyKeys?: string[];
+  relayChannels?: 4 | 6 | 8;
   paused?: boolean;
 };
 
-// ================= ISOLATED HARDWARE PILOT DEVICE =================
-// All other devices stripped and hidden as requested:
+// ================= GKB HARDWARE FLEET =================
 const defaultDevices: Device[] = [
   {
     id: 1,
-    name: 'ESP32 Smart Relay Pilot (Hardware Test Ground)',
+    name: 'ESP32 Smart Relay Pilot (Single Relay)',
     key: 'GKB-SEC-0001',
     legacyKeys: ['GKB-RELAY-0001', 'GKBSEC-00106', 'GKB-SEC-9988'],
-    status: 'Online',
-    lastAlert: 'Relay Ready · BLE & QR Provisioning Active · GPIO 23 Output',
+    status: 'Verified',
+    lastAlert: 'Single Relay Active · BLE & QR Verified · GPIO 23 Cloud Switched',
     project: 'relay-test'
+  },
+  {
+    id: 2,
+    name: 'Smart Light Control System v1 · 4-Channel Relay',
+    key: 'GKB-LIGHT-0001V1',
+    legacyKeys: ['GKB-LIGHTV1-0001', 'GKB-LIGHT-0001'],
+    status: 'Active Target',
+    lastAlert: '4-Relay Channel Board · BLE & QR Ready · GPIO 23, 22, 21, 19',
+    project: 'light-control',
+    relayChannels: 4
+  },
+  {
+    id: 3,
+    name: 'Smart Light Control System v2 · 6-Channel Relay',
+    key: 'GKB-LIGHT-0001V2',
+    legacyKeys: ['GKB-LIGHTV2-0001'],
+    status: 'Fleet',
+    lastAlert: '6-Relay Channel Board · Multi-Zone Lighting',
+    project: 'light-control',
+    relayChannels: 6
+  },
+  {
+    id: 4,
+    name: 'Smart Light Control System v3 · 8-Channel Relay',
+    key: 'GKB-LIGHT-0001V3',
+    legacyKeys: ['GKB-LIGHTV3-0001'],
+    status: 'Fleet',
+    lastAlert: '8-Relay Channel Board · Industrial Lighting Array',
+    project: 'light-control',
+    relayChannels: 8
+  },
+  {
+    id: 5,
+    name: 'Smart Water Tank Monitor',
+    key: 'GKB-SWP-0001',
+    legacyKeys: ['GKB-WTR-4412'],
+    status: 'Fleet',
+    lastAlert: 'Water level stable at 68% · Ultrasonic Telemetry',
+    project: 'water-tank-monitor'
+  },
+  {
+    id: 6,
+    name: 'Industrial Fuel Tank Monitor',
+    key: 'GKB-IUFT-0001',
+    status: 'Fleet',
+    lastAlert: 'Fuel level stable at 72% · Pressure Sensor',
+    project: 'fuel-tank-monitor'
+  },
+  {
+    id: 7,
+    name: 'GKB Smart Prepaid Energy Meter',
+    key: 'GKB-SPEM-0001',
+    status: 'Fleet',
+    lastAlert: 'Meter secure · Balance GHS 24.50 · 230V 50Hz',
+    project: 'prepaid-energy-meter'
+  },
+  {
+    id: 8,
+    name: 'Smart Fan Regulator',
+    key: 'GKB-FAN-0001',
+    legacyKeys: ['GKB-SFLC-0001'],
+    status: 'Fleet',
+    lastAlert: 'Multi-speed capacitor relay bank',
+    project: 'fan-regulator'
+  },
+  {
+    id: 9,
+    name: 'Smart Alcohol Breathalyzer System',
+    key: 'GKB-SAB-0001',
+    status: 'Fleet',
+    lastAlert: 'MQ-3 Gas Sensor · Vehicle Ignition Lockout',
+    project: 'alcohol-breathalyzer'
   }
 ];
+
 
 function formatSupabaseError(error: unknown): string {
   if (error instanceof Error) return error.message;
@@ -621,9 +705,99 @@ function RelayTestDashboard({ mode = 'service' }: { mode?: 'test' | 'service' })
   );
 }
 
-// ================= MAIN IOT DEVICE PORTAL (ISOLATED TO RELAY PILOT) =================
+// ================= GENERIC FLEET PREVIEW DASHBOARD =================
+function GenericFleetPreviewDashboard({
+  device,
+  onSwitchToLightControl,
+  onSwitchToRelayPilot
+}: {
+  device: Device;
+  onSwitchToLightControl: () => void;
+  onSwitchToRelayPilot: () => void;
+}) {
+  return (
+    <section aria-labelledby="fleet-device-title" className="mx-auto max-w-5xl space-y-6 animate-fadeIn">
+      <header className="rounded-2xl border border-slate-800 bg-slate-900/90 p-5 sm:p-6">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div>
+            <div className="flex items-center gap-2">
+              <span className="flex h-2 w-2 rounded-full bg-cyan-400" />
+              <p className="text-xs font-bold uppercase tracking-[0.2em] text-cyan-300">
+                GKB Hardware Fleet Member · Microcontroller Telemetry
+              </p>
+            </div>
+            <h2 id="fleet-device-title" className="mt-1 text-2xl font-black text-white sm:text-3xl">
+              {device.name}
+            </h2>
+          </div>
+          <span className="inline-flex items-center gap-1.5 rounded-full border border-cyan-500/40 bg-cyan-500/10 px-3.5 py-1.5 font-mono text-xs font-bold text-cyan-300 w-fit">
+            <Cpu className="h-4 w-4 text-cyan-400" /> Key: {device.key}
+          </span>
+        </div>
+        <p className="mt-2 text-xs sm:text-sm text-slate-300 leading-relaxed max-w-3xl">
+          {device.lastAlert}. Node status: {device.status}. Ready for standardized Web Bluetooth (BLE) GATT provisioning and telemetry pipeline.
+        </p>
+      </header>
+
+      {/* Target Notice & Quick Action Banner */}
+      <div className="rounded-2xl border border-amber-500/30 bg-gradient-to-r from-amber-500/10 via-slate-900 to-slate-900 p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div className="flex items-center gap-3">
+          <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-amber-500/20 text-amber-300 shrink-0">
+            <Lightbulb className="h-6 w-6" />
+          </div>
+          <div>
+            <h4 className="text-sm font-bold text-white">Active Hardware Target: Smart Light Control</h4>
+            <p className="text-xs text-slate-400">
+              Standardized BLE + QR provisioning and 4-channel cloud relay telemetry is currently active on the Smart Light Control System.
+            </p>
+          </div>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            onClick={onSwitchToLightControl}
+            className="inline-flex items-center gap-1.5 rounded-xl bg-gradient-to-r from-amber-400 to-amber-500 px-4 py-2 text-xs font-bold text-black hover:opacity-90 transition-all cursor-pointer"
+          >
+            <Lightbulb className="h-4 w-4" /> Open Light Control
+          </button>
+          <button
+            type="button"
+            onClick={onSwitchToRelayPilot}
+            className="inline-flex items-center gap-1.5 rounded-xl border border-slate-700 bg-slate-800 px-3.5 py-2 text-xs font-bold text-slate-200 hover:text-white transition-all cursor-pointer"
+          >
+            <Cpu className="h-4 w-4" /> Verified Relay Pilot
+          </button>
+        </div>
+      </div>
+
+      {/* Telemetry Cards */}
+      <div className="grid gap-4 sm:grid-cols-3">
+        <div className="rounded-2xl border border-slate-800 bg-slate-900/70 p-5">
+          <p className="text-xs font-medium uppercase tracking-wider text-slate-400">Hardware Gateway</p>
+          <p className="text-xl font-bold text-white mt-2">ESP32 Dev Module</p>
+          <p className="text-xs text-emerald-400 mt-2 flex items-center gap-1">
+            <span className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse" /> 2.4GHz Wi-Fi + BLE 4.2
+          </p>
+        </div>
+
+        <div className="rounded-2xl border border-slate-800 bg-slate-900/70 p-5">
+          <p className="text-xs font-medium uppercase tracking-wider text-slate-400">Provisioning Standard</p>
+          <p className="text-xl font-bold text-white mt-2">BLE + QR Token</p>
+          <p className="text-xs text-cyan-400 mt-2 font-mono">{device.key}</p>
+        </div>
+
+        <div className="rounded-2xl border border-slate-800 bg-slate-900/70 p-5">
+          <p className="text-xs font-medium uppercase tracking-wider text-slate-400">Device Telemetry</p>
+          <p className="text-xl font-bold text-white mt-2">{device.status}</p>
+          <p className="text-xs text-slate-400 mt-2 truncate">{device.lastAlert}</p>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+// ================= MAIN IOT DEVICE PORTAL =================
 export default function IoTDevicePortal() {
-  // Always active on the Relay Test Dashboard
   const [activeTab, setActiveTab] = useState<'dashboard' | 'support' | 'contact'>('dashboard');
   const [isLightMode, setIsLightMode] = useState(
     () => window.localStorage.getItem('gkb-theme') === 'light'
@@ -641,8 +815,8 @@ export default function IoTDevicePortal() {
   const [loginBusy, setLoginBusy] = useState(false);
   const [creatingAccount, setCreatingAccount] = useState(false);
 
-  // Isolate devices to Relay Pilot only - purge old local storage devices
-  const [selectedDevice] = useState<Device>(defaultDevices[0]);
+  // Selected device from fleet (defaults to active target: Smart Light Control System v1)
+  const [selectedDevice, setSelectedDevice] = useState<Device>(defaultDevices[1]);
   const [inputKey, setInputKey] = useState('');
   const [linkMessage, setLinkMessage] = useState('');
   const [linkMessageIsError, setLinkMessageIsError] = useState(false);
@@ -651,13 +825,13 @@ export default function IoTDevicePortal() {
   const isAdmin = Boolean(user && (user.role === 'admin' || user.email?.toLowerCase() === 'zumkel023@gmail.com'));
 
   useEffect(() => {
-    // Clear out old complex device keys from localStorage so user only ever sees Relay Test
     window.localStorage.setItem('gkb-devices', JSON.stringify(defaultDevices));
   }, []);
 
   useEffect(() => {
     window.localStorage.setItem('gkb-theme', isLightMode ? 'light' : 'dark');
   }, [isLightMode]);
+
 
   // Auth session
   const applyPortalSession = useCallback(async (session: Session | null) => {
@@ -750,12 +924,19 @@ export default function IoTDevicePortal() {
       return;
     }
 
-    if (clean === 'GKB-SEC-0001' || clean === 'GKB-RELAY-0001' || clean === 'GKBSEC-00106' || clean === 'GKB-SEC-9988') {
-      setLinkMessage('ESP32 Smart Relay Pilot matched! Launching dashboard...');
+    const matched = defaultDevices.find(d =>
+      d.key.toUpperCase() === clean ||
+      d.legacyKeys?.some(k => k.toUpperCase() === clean) ||
+      d.name.toUpperCase().includes(clean)
+    );
+
+    if (matched) {
+      setSelectedDevice(matched);
+      setLinkMessage(`Device matched: ${matched.name} (${matched.key})! Launching dashboard...`);
       setActiveTab('dashboard');
     } else {
       setLinkMessageIsError(true);
-      setLinkMessage('Currently in isolated pilot mode. Only ESP32 Relay (GKB-SEC-0001) is active.');
+      setLinkMessage(`No hardware device registered with key "${clean}". Select from fleet below.`);
     }
     setLinkBusy(false);
   };
@@ -881,32 +1062,106 @@ export default function IoTDevicePortal() {
 
       {/* Main Body */}
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {/* Quick Hardware Key Switcher Bar */}
-        <div className="mb-6 flex flex-col sm:flex-row sm:items-center justify-between gap-3 rounded-2xl border border-cyan-500/20 bg-slate-900/60 p-4">
-          <div className="flex items-center gap-2">
-            <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Active Device:</span>
-            <span className="font-mono text-xs font-bold text-cyan-300 bg-slate-950 px-3 py-1 rounded-lg border border-cyan-500/30">
-              GKB-SEC-0001
-            </span>
-            <span className="text-xs text-slate-500 hidden md:inline">· ESP32 Relay Pilot Mode</span>
+        {/* Hardware Fleet Navigation Bar */}
+        <div className="mb-6 space-y-3">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 rounded-2xl border border-slate-800 bg-slate-900/80 p-4">
+            <div className="flex items-center gap-3">
+              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-tr from-cyan-500 to-purple-600 text-black shrink-0 shadow-md shadow-cyan-500/20">
+                <Layers className="h-5 w-5 text-black" />
+              </div>
+              <div>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-bold text-white uppercase tracking-wider">Active Hardware:</span>
+                  <span className={`font-mono text-xs font-bold px-2.5 py-0.5 rounded-lg border ${
+                    selectedDevice.project === 'light-control'
+                      ? 'bg-amber-500/15 text-amber-300 border-amber-500/40'
+                      : 'bg-cyan-500/15 text-cyan-300 border-cyan-500/40'
+                  }`}>
+                    {selectedDevice.key}
+                  </span>
+                </div>
+                <p className="text-xs text-slate-400 mt-0.5">{selectedDevice.name}</p>
+              </div>
+            </div>
+
+            <form onSubmit={handleKeySearch} className="flex items-center gap-2">
+              <input
+                type="text"
+                value={inputKey}
+                onChange={e => setInputKey(e.target.value)}
+                placeholder="Search key (e.g. GKB-LIGHT-0001V1)..."
+                className="rounded-xl border border-slate-700 bg-slate-950 px-3 py-1.5 text-xs text-white placeholder-slate-500 focus:border-cyan-400 focus:outline-none font-mono"
+              />
+              <button
+                type="submit"
+                disabled={linkBusy}
+                className="rounded-xl bg-cyan-500 px-3 py-1.5 text-xs font-bold text-black hover:bg-cyan-400 transition-colors cursor-pointer"
+              >
+                Open
+              </button>
+            </form>
           </div>
 
-          <form onSubmit={handleKeySearch} className="flex items-center gap-2">
-            <input
-              type="text"
-              value={inputKey}
-              onChange={e => setInputKey(e.target.value)}
-              placeholder="Search or enter hardware key (GKB-SEC-0001)..."
-              className="rounded-xl border border-slate-700 bg-slate-950 px-3 py-1.5 text-xs text-white placeholder-slate-500 focus:border-cyan-400 focus:outline-none font-mono"
-            />
-            <button
-              type="submit"
-              disabled={linkBusy}
-              className="rounded-xl bg-cyan-500 px-3 py-1.5 text-xs font-bold text-black hover:bg-cyan-400 transition-colors cursor-pointer"
-            >
-              Open
-            </button>
-          </form>
+          {/* Quick Fleet Pills Switcher */}
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-2">
+            {defaultDevices.map(d => {
+              const isSelected = selectedDevice.key === d.key;
+              const isLight = d.project === 'light-control';
+              const isRelayPilot = d.project === 'relay-test';
+
+              return (
+                <button
+                  key={d.key}
+                  type="button"
+                  onClick={() => {
+                    setSelectedDevice(d);
+                    setActiveTab('dashboard');
+                    setLinkMessage('');
+                  }}
+                  className={`flex flex-col justify-between p-3 rounded-xl border text-left transition-all duration-200 cursor-pointer ${
+                    isSelected
+                      ? isLight
+                        ? 'border-amber-400/80 bg-amber-500/20 shadow-md shadow-amber-500/20 ring-1 ring-amber-400'
+                        : 'border-cyan-400/80 bg-cyan-500/20 shadow-md shadow-cyan-500/20 ring-1 ring-cyan-400'
+                      : 'border-slate-800/80 bg-slate-900/60 hover:border-slate-700 hover:bg-slate-900/90'
+                  }`}
+                >
+                  <div className="flex items-center justify-between gap-1 mb-1.5">
+                    <span className="font-mono text-[10px] text-slate-400 truncate">{d.key}</span>
+                    <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold uppercase ${
+                      isLight
+                        ? 'bg-amber-400/20 text-amber-300'
+                        : isRelayPilot
+                          ? 'bg-emerald-500/20 text-emerald-300'
+                          : 'bg-slate-800 text-slate-400'
+                    }`}>
+                      {isLight ? 'Target' : isRelayPilot ? 'Verified' : 'Fleet'}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    {isLight ? (
+                      <Lightbulb className={`h-3.5 w-3.5 shrink-0 ${isSelected ? 'text-amber-300 fill-amber-300' : 'text-amber-400'}`} />
+                    ) : isRelayPilot ? (
+                      <Cpu className={`h-3.5 w-3.5 shrink-0 ${isSelected ? 'text-cyan-300' : 'text-cyan-400'}`} />
+                    ) : d.project === 'water-tank-monitor' ? (
+                      <Droplets className="h-3.5 w-3.5 shrink-0 text-sky-400" />
+                    ) : d.project === 'fuel-tank-monitor' ? (
+                      <Fuel className="h-3.5 w-3.5 shrink-0 text-emerald-400" />
+                    ) : d.project === 'prepaid-energy-meter' ? (
+                      <Zap className="h-3.5 w-3.5 shrink-0 text-yellow-400" />
+                    ) : d.project === 'fan-regulator' ? (
+                      <Wind className="h-3.5 w-3.5 shrink-0 text-blue-400" />
+                    ) : (
+                      <FlaskConical className="h-3.5 w-3.5 shrink-0 text-purple-400" />
+                    )}
+                    <p className={`text-xs font-bold truncate ${isSelected ? 'text-white' : 'text-slate-300'}`}>
+                      {d.name.split('·')[0].replace('ESP32 ', '').replace('GKB ', '')}
+                    </p>
+                  </div>
+                </button>
+              );
+            })}
+          </div>
         </div>
 
         {linkMessage && (
@@ -918,7 +1173,17 @@ export default function IoTDevicePortal() {
         {/* ================= PRIMARY DASHBOARD VIEW ================= */}
         {activeTab === 'dashboard' && (
           <div className="space-y-6 animate-fadeIn">
-            <RelayTestDashboard mode="service" />
+            {selectedDevice.project === 'relay-test' ? (
+              <RelayTestDashboard mode="service" />
+            ) : selectedDevice.project === 'light-control' ? (
+              <LightControlDashboard mode="service" device={selectedDevice} />
+            ) : (
+              <GenericFleetPreviewDashboard
+                device={selectedDevice}
+                onSwitchToLightControl={() => setSelectedDevice(defaultDevices[1])}
+                onSwitchToRelayPilot={() => setSelectedDevice(defaultDevices[0])}
+              />
+            )}
           </div>
         )}
 
