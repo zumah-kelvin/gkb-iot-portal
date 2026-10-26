@@ -503,32 +503,67 @@ export default function BleProvisioningModal({
                 </div>
               </label>
 
-              {/* Fast one-click test button */}
-              <div className="flex items-center justify-between text-xs text-slate-400">
-                <span>Default Pilot Key: <code className="text-cyan-300 font-mono">GKB-SEC-0001</code></span>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setDeviceKeyInput('GKB-SEC-0001');
-                    // If no live RX char, allow direct progression for UI testing
-                    if (!rxChar) {
-                      setStep('wifi_config');
-                      addLog('✅ Verified token GKB-SEC-0001 (Simulated Local Authenticated).');
-                    } else {
-                      sendKeyVerification('GKB-SEC-0001');
-                    }
-                  }}
-                  className="text-cyan-400 hover:text-cyan-300 underline cursor-pointer"
-                >
-                  Use GKB-SEC-0001
-                </button>
+              {/* Quick-Select Tokens (Target Device or Reused Pilot) */}
+              <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-slate-400 pt-1">
+                <span className="text-[11px]">Quick Tokens:</span>
+                <div className="flex flex-wrap items-center gap-1.5">
+                  {initialDeviceKey && initialDeviceKey !== 'GKB-SEC-0001' && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setDeviceKeyInput(initialDeviceKey);
+                        if (!rxChar) {
+                          setStep('wifi_config');
+                          addLog(`✅ Verified token ${initialDeviceKey} (Simulated).`);
+                        } else {
+                          sendKeyVerification(initialDeviceKey);
+                        }
+                      }}
+                      className="px-2.5 py-1 rounded-lg bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 font-mono text-[11px] font-bold border border-amber-500/30 cursor-pointer"
+                    >
+                      {initialDeviceKey}
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setDeviceKeyInput('GKB-SEC-0001');
+                      if (!rxChar) {
+                        setStep('wifi_config');
+                        addLog('✅ Verified token GKB-SEC-0001 (Simulated).');
+                      } else {
+                        sendKeyVerification('GKB-SEC-0001');
+                      }
+                    }}
+                    className="px-2.5 py-1 rounded-lg bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-300 font-mono text-[11px] font-bold border border-cyan-500/30 cursor-pointer"
+                  >
+                    GKB-SEC-0001 (Pilot Re-use)
+                  </button>
+                </div>
               </div>
             </form>
 
             {verifyError && (
-              <div className="rounded-xl border border-red-500/30 bg-red-500/10 p-3 text-xs text-red-200 flex items-start gap-2">
-                <AlertTriangle className="h-4 w-4 text-red-400 shrink-0 mt-0.5" />
-                <span>{verifyError}</span>
+              <div className="rounded-xl border border-red-500/30 bg-red-500/10 p-3 text-xs text-red-200 space-y-2">
+                <div className="flex items-start gap-2">
+                  <AlertTriangle className="h-4 w-4 text-red-400 shrink-0 mt-0.5" />
+                  <span>{verifyError}</span>
+                </div>
+                {(verifyError.includes('mismatch') || verifyError.includes('failed') || verifyError.includes('Authentication failed')) && (
+                  <div className="border-t border-red-500/20 pt-2 flex items-center justify-between">
+                    <span className="text-[11px] text-slate-300">Reusing hardware from Single Relay Pilot?</span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setDeviceKeyInput('GKB-SEC-0001');
+                        void sendKeyVerification('GKB-SEC-0001');
+                      }}
+                      className="px-2 py-0.5 rounded bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-300 font-mono text-[11px] font-bold border border-cyan-500/40 cursor-pointer"
+                    >
+                      Try GKB-SEC-0001
+                    </button>
+                  </div>
+                )}
               </div>
             )}
           </div>
