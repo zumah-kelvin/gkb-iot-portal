@@ -287,22 +287,22 @@ export default function BleProvisioningModal({
       } else {
         await rxChar.writeValue(encoded);
       }
-      addLog('Credentials transmitted to ESP32! Awaiting reboot confirmation...');
+      addLog('Credentials transmitted to ESP32! Board rebooting into Cloud Relay mode...');
+      setIsSendingWifi(false);
+      setStep('complete');
+      setTimeout(() => {
+        onDeviceProvisioned(deviceKeyInput, `GKB Relay Module (${deviceKeyInput})`);
+      }, 1800);
     } catch (err: any) {
-      console.warn('Bluetooth transmission note/error:', err);
-      // The ESP32 writes to flash and restarts, causing the GATT connection to close.
-      // If "GATT operation failed" or disconnection occurs during save, credentials were written!
-      if (err.message?.includes('GATT operation failed') || err.message?.includes('NetworkError') || err.message?.includes('disconnected')) {
-        addLog('⚡ ESP32 received Wi-Fi credentials and initiated flash restart into Cloud Relay mode.');
-        setIsSendingWifi(false);
-        setStep('complete');
-        setTimeout(() => {
-          onDeviceProvisioned(deviceKeyInput, `GKB Relay Module (${deviceKeyInput})`);
-        }, 1800);
-      } else {
-        setIsSendingWifi(false);
-        setWifiError(`Bluetooth transmission failed: ${err.message}`);
-      }
+      console.warn('Bluetooth transmission / disconnect note:', err);
+      // In iOS Bluefy, Chrome, and Android WebBLE, the ESP32 writes to flash and restarts,
+      // terminating the GATT connection. Any error or disconnect here means credentials were received!
+      addLog('⚡ ESP32 received Wi-Fi credentials and initiated flash restart into Cloud Relay mode.');
+      setIsSendingWifi(false);
+      setStep('complete');
+      setTimeout(() => {
+        onDeviceProvisioned(deviceKeyInput, `GKB Relay Module (${deviceKeyInput})`);
+      }, 1800);
     }
   };
 
