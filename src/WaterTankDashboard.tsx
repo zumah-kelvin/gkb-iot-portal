@@ -111,15 +111,36 @@ function generateWaterTankArduinoCode(deviceKey: string = 'GKB-SWP-0001'): strin
 #include <BLEUtils.h>
 #include <BLE2902.h>
 
-#define PIN_TRIG            5    // JSN-SR04T Trigger Pin
-#define PIN_ECHO            18   // JSN-SR04T Echo Pin
+// ================= HARDWARE PINOUT & SENSOR INTERFACE MODE =================
+// The JSN-SR04T / AJ-SR04M / SR04M-2 sensor board header has 4 pins: 5V, RX, TX, GND.
+// 
+// 1. DEFAULT FACTORY PULSE MODE (No resistors soldered on back pads R19/R27):
+//    - Sensor 'RX' is the TRIGGER input -> Connect to ESP32 GPIO 5
+//    - Sensor 'TX' is the ECHO output   -> Connect to ESP32 GPIO 18
+//    - Set USE_UART_MODE to false (default)
+//
+// 2. SERIAL UART MODE (If your module is configured for 9600-baud serial data):
+//    - Sensor 'TX' -> Connect to ESP32 RX2 (GPIO 16)
+//    - Sensor 'RX' -> Connect to ESP32 TX2 (GPIO 17)
+//    - Set USE_UART_MODE to true
+//
+#define USE_UART_MODE       false // Set true for Serial UART (9600 baud), false for Pulse Mode (RX=Trig, TX=Echo)
+
+// Pulse Mode Pins (when USE_UART_MODE is false)
+#define PIN_TRIG            5    // ESP32 GPIO 5  -> Sensor 'RX' (Trigger Pulse)
+#define PIN_ECHO            18   // ESP32 GPIO 18 -> Sensor 'TX' (Echo Return Pulse)
+
+// UART Serial2 Pins (when USE_UART_MODE is true)
+#define PIN_UART_RX2        16   // ESP32 GPIO 16 (RX2) <- Sensor 'TX'
+#define PIN_UART_TX2        17   // ESP32 GPIO 17 (TX2) -> Sensor 'RX'
+
 #define PIN_PUMP_RELAY      23   // Submersible Water Pump Relay (Active HIGH)
 #define PIN_BUZZER          19   // Piezo Buzzer Alert Pin
 #define PIN_STATUS_LED      2    // ESP32 Onboard Blue LED
 #define PIN_BOOT_BUTTON     0    // Onboard BOOT Button (Factory Reset)
 
 #define RELAY_ACTIVE_HIGH   true
-#define DEFAULT_DEVICE_KEY  "${deviceKey}"
+#define DEFAULT_DEVICE_KEY  "\${deviceKey}"
 #define SUPABASE_DEVICE_ID  "water_01"
 
 float tankHeightCm          = 100.0;
@@ -172,6 +193,33 @@ bool pendingReboot = false;
 unsigned long rebootScheduledAt = 0;
 
 float measureRawDistanceCm() {
+#if USE_UART_MODE
+  while (Serial2.available()) Serial2.read();
+  Serial2.write(0x55);
+
+  unsigned long startWait = millis();
+  while (Serial2.available() < 4 && (millis() - startWait < 120)) {
+    delay(2);
+  }
+
+  if (Serial2.available() >= 4) {
+    uint8_t header = Serial2.read();
+    if (header == 0xFF) {
+      uint8_t highByte = Serial2.read();
+      uint8_t lowByte  = Serial2.read();
+      uint8_t checksum = Serial2.read();
+      uint8_t expected = (header + highByte + lowByte) & 0xFF;
+
+      if (checksum == expected) {
+        int distMm = (highByte << 8) | lowByte;
+        return distMm / 10.0;
+      }
+    } else {
+      while (Serial2.available()) Serial2.read();
+    }
+  }
+  return -1.0;
+#else
   digitalWrite(PIN_TRIG, LOW);
   delayMicroseconds(4);
   digitalWrite(PIN_TRIG, HIGH);
@@ -181,6 +229,7 @@ float measureRawDistanceCm() {
   unsigned long duration = pulseIn(PIN_ECHO, HIGH, 30000);
   if (duration == 0) return -1.0;
   return (duration * 0.0343) / 2.0;
+#endif
 }
 
 float getFilteredDistanceCm() {
@@ -399,9 +448,13 @@ void setup() {
   pinMode(PIN_STATUS_LED, OUTPUT);
   digitalWrite(PIN_STATUS_LED, LOW);
 
+#if USE_UART_MODE
+  Serial2.begin(9600, SERIAL_8N1, PIN_UART_RX2, PIN_UART_TX2);
+#else
   pinMode(PIN_TRIG, OUTPUT);
   pinMode(PIN_ECHO, INPUT);
   digitalWrite(PIN_TRIG, LOW);
+#endif
 
   pinMode(PIN_PUMP_RELAY, OUTPUT);
   pinMode(PIN_BUZZER, OUTPUT);
@@ -1397,13 +1450,28 @@ export default function WaterTankDashboard({
               </button>
             </div>
 
-            <div className="p-3 rounded-xl bg-slate-950 border border-slate-800 text-xs space-y-1">
-              <div className="font-bold text-slate-300">Hardware Pinout Reference:</div>
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-slate-400 font-mono text-[11px]">
-                <div>• Trig: <span className="text-cyan-300">GPIO 5</span></div>
-                <div>• Echo: <span className="text-cyan-300">GPIO 18</span></div>
-                <div>• Pump Relay: <span className="text-cyan-300">GPIO 23</span></div>
-                <div>• Buzzer: <span className="text-cyan-300">GPIO 19</span></div>
+            <div className="p-3.5 rounded-2xl bg-slate-950 border border-slate-800 text-xs space-y-2">
+              <div className="font-bold text-slate-200 flex items-center justify-between">
+                <span>JSN-SR04T / SR04M-2 Sensor Wiring Guide (4 Pins: 5V, RX, TX, GND):</span>
+                <span className="text-[10px] text-cyan-400 font-normal">Dual Mode Supported</span>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-slate-400 font-mono text-[11px]">
+                <div className="p-2 rounded-lg bg-slate-900 border border-slate-800/80">
+                  <span className="text-emerald-400 font-bold">Mode A (Default Pulse):</span>
+                  <div>• Sensor RX (Trig) &rarr; <span className="text-cyan-300">ESP32 GPIO 5</span></div>
+                  <div>• Sensor TX (Echo) &rarr; <span className="text-cyan-300">ESP32 GPIO 18</span></div>
+                </div>
+                <div className="p-2 rounded-lg bg-slate-900 border border-slate-800/80">
+                  <span className="text-purple-400 font-bold">Mode B (UART 9600 Baud):</span>
+                  <div>• Sensor TX &rarr; <span className="text-cyan-300">ESP32 GPIO 16 (RX2)</span></div>
+                  <div>• Sensor RX &rarr; <span className="text-cyan-300">ESP32 GPIO 17 (TX2)</span></div>
+                </div>
+              </div>
+              <div className="flex flex-wrap gap-4 text-[11px] text-slate-400 font-mono pt-1 border-t border-slate-900">
+                <div>• Pump Relay: <span className="text-cyan-300">GPIO 23</span> (Active HIGH)</div>
+                <div>• Piezo Buzzer: <span className="text-cyan-300">GPIO 19</span></div>
+                <div>• Status LED: <span className="text-cyan-300">GPIO 2</span></div>
+                <div>• Factory Reset: <span className="text-cyan-300">GPIO 0 (BOOT)</span></div>
               </div>
             </div>
 
