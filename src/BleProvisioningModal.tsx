@@ -16,6 +16,7 @@ export interface BleProvisioningModalProps {
   onDeviceProvisioned: (deviceKey: string, deviceName: string) => void;
   initialDeviceKey?: string;
   initialShowLabel?: boolean;
+  channelVariant?: 2 | 4 | 6 | 8;
 }
 
 export default function BleProvisioningModal({
@@ -23,7 +24,8 @@ export default function BleProvisioningModal({
   onClose,
   onDeviceProvisioned,
   initialDeviceKey = 'GKB-RELAY-0001',
-  initialShowLabel = false
+  initialShowLabel = false,
+  channelVariant
 }: BleProvisioningModalProps) {
   // Modal Step State: 'ble_connect' -> 'qr_verify' -> 'wifi_config' -> 'complete'
   const [step, setStep] = useState<'ble_connect' | 'qr_verify' | 'wifi_config' | 'complete'>('ble_connect');
@@ -275,10 +277,14 @@ export default function BleProvisioningModal({
     addLog(`>> [APP-RX]: Sending SET_WIFI payload for SSID "${wifiSsid.trim()}"`);
 
     try {
-      const payload = JSON.stringify({
+      const payloadObj: Record<string, any> = {
         ssid: wifiSsid.trim(),
         pass: wifiPass
-      });
+      };
+      if (channelVariant) {
+        payloadObj.channels = channelVariant;
+      }
+      const payload = JSON.stringify(payloadObj);
       const textEncoder = new TextEncoder();
       const encoded = textEncoder.encode(`SET_WIFI:${payload}`);
 
