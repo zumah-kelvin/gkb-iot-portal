@@ -3,6 +3,7 @@ import type { Session } from '@supabase/supabase-js';
 import { relayControlEnabled, relaySupabase, relaySupabaseConfigError } from './supabase';
 import BleProvisioningModal from './BleProvisioningModal';
 import LightControlDashboard from './LightControlDashboard';
+import WaterTankDashboard from './WaterTankDashboard';
 import {
   Cpu, Shield, Wrench, Phone, Mail, Globe,
   User, Lock, LogOut, CheckCircle, AlertTriangle,
@@ -68,8 +69,8 @@ const defaultDevices: Device[] = [
     name: 'Smart Water Tank Monitor',
     key: 'GKB-SWP-0001',
     legacyKeys: ['GKB-WTR-4412'],
-    status: 'Fleet',
-    lastAlert: 'Water level stable at 68% · Ultrasonic Telemetry',
+    status: 'Active Target',
+    lastAlert: 'JSN-SR04T Ultrasonic Telemetry · Submersible Pump Relay GPIO 23 · BLE & QR Provisioning',
     project: 'water-tank-monitor'
   },
   {
@@ -689,11 +690,13 @@ function RelayTestDashboard({ mode = 'service' }: { mode?: 'test' | 'service' })
 function GenericFleetPreviewDashboard({
   device,
   onSwitchToLightControl,
-  onSwitchToRelayPilot
+  onSwitchToRelayPilot,
+  onSwitchToWaterTank
 }: {
   device: Device;
   onSwitchToLightControl: () => void;
   onSwitchToRelayPilot: () => void;
+  onSwitchToWaterTank?: () => void;
 }) {
   return (
     <section aria-labelledby="fleet-device-title" className="mx-auto max-w-5xl space-y-6 animate-fadeIn">
@@ -720,32 +723,41 @@ function GenericFleetPreviewDashboard({
       </header>
 
       {/* Target Notice & Quick Action Banner */}
-      <div className="rounded-2xl border border-amber-500/30 bg-gradient-to-r from-amber-500/10 via-slate-900 to-slate-900 p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+      <div className="rounded-2xl border border-cyan-500/30 bg-gradient-to-r from-cyan-500/10 via-slate-900 to-slate-900 p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div className="flex items-center gap-3">
-          <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-amber-500/20 text-amber-300 shrink-0">
-            <Lightbulb className="h-6 w-6" />
+          <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-cyan-500/20 text-cyan-300 shrink-0">
+            <Droplets className="h-6 w-6" />
           </div>
           <div>
-            <h4 className="text-sm font-bold text-white">Active Hardware Target: Smart Light Control</h4>
+            <h4 className="text-sm font-bold text-white">Active Hardware Target: Smart Water Tank Monitor</h4>
             <p className="text-xs text-slate-400">
-              Standardized BLE + QR provisioning and 4-channel cloud relay telemetry is currently active on the Smart Light Control System.
+              JSN-SR04T ultrasonic depth telemetry, automated submersible pump relay (GPIO 23), and BLE provisioning.
             </p>
           </div>
         </div>
         <div className="flex flex-wrap items-center gap-2">
+          {onSwitchToWaterTank && (
+            <button
+              type="button"
+              onClick={onSwitchToWaterTank}
+              className="inline-flex items-center gap-1.5 rounded-xl bg-gradient-to-r from-cyan-400 to-blue-500 px-4 py-2 text-xs font-bold text-slate-950 hover:opacity-90 transition-all cursor-pointer shadow-lg shadow-cyan-500/20"
+            >
+              <Droplets className="h-4 w-4" /> Open Water Tank Monitor
+            </button>
+          )}
           <button
             type="button"
             onClick={onSwitchToLightControl}
-            className="inline-flex items-center gap-1.5 rounded-xl bg-gradient-to-r from-amber-400 to-amber-500 px-4 py-2 text-xs font-bold text-black hover:opacity-90 transition-all cursor-pointer"
+            className="inline-flex items-center gap-1.5 rounded-xl border border-amber-500/40 bg-amber-500/10 px-3.5 py-2 text-xs font-bold text-amber-300 hover:bg-amber-500/20 transition-all cursor-pointer"
           >
-            <Lightbulb className="h-4 w-4" /> Open Light Control
+            <Lightbulb className="h-4 w-4" /> Light Control
           </button>
           <button
             type="button"
             onClick={onSwitchToRelayPilot}
             className="inline-flex items-center gap-1.5 rounded-xl border border-slate-700 bg-slate-800 px-3.5 py-2 text-xs font-bold text-slate-200 hover:text-white transition-all cursor-pointer"
           >
-            <Cpu className="h-4 w-4" /> Verified Relay Pilot
+            <Cpu className="h-4 w-4" /> Relay Pilot
           </button>
         </div>
       </div>
@@ -1359,9 +1371,12 @@ export default function IoTDevicePortal() {
               <RelayTestDashboard mode="service" />
             ) : selectedDevice.project === 'light-control' ? (
               <LightControlDashboard mode="service" device={selectedDevice} />
+            ) : selectedDevice.project === 'water-tank-monitor' || selectedDevice.key === 'GKB-SWP-0001' ? (
+              <WaterTankDashboard mode="service" device={selectedDevice} />
             ) : (
               <GenericFleetPreviewDashboard
                 device={selectedDevice}
+                onSwitchToWaterTank={() => setSelectedDevice(defaultDevices[2])}
                 onSwitchToLightControl={() => setSelectedDevice(defaultDevices[1])}
                 onSwitchToRelayPilot={() => setSelectedDevice(defaultDevices[0])}
               />
