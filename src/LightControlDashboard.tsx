@@ -124,7 +124,9 @@ void pollCloud() {
   if (WiFi.status() != WL_CONNECTED) return;
   WiFiClientSecure client;
   client.setInsecure();
+  client.setTimeout(4);
   HTTPClient http;
+  http.setTimeout(4000);
   if (http.begin(client, SUPABASE_REST_URL)) {
     http.addHeader("apikey", SUPABASE_ANON_KEY);
     http.addHeader("Authorization", String("Bearer ") + SUPABASE_ANON_KEY);
@@ -180,6 +182,7 @@ void loop() {
     lastCloudPoll = millis();
     pollCloud();
   }
+  delay(15);
 }
 `;
 }
