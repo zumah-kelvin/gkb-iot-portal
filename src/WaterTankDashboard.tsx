@@ -124,7 +124,7 @@ function generateWaterTankArduinoCode(deviceKey: string = 'GKB-SWP-0001'): strin
 //    - Sensor 'RX' -> Connect to ESP32 TX2 (GPIO 17)
 //    - Set USE_UART_MODE to true
 //
-#define USE_UART_MODE       false // Set true for Serial UART (9600 baud), false for Pulse Mode (RX=Trig, TX=Echo)
+#define USE_UART_MODE       true  // Active Mode: Mode B Serial UART (9600 baud) on GPIO 16 (RX2) & GPIO 17 (TX2)
 
 // Pulse Mode Pins (when USE_UART_MODE is false)
 #define PIN_TRIG            5    // ESP32 GPIO 5  -> Sensor 'RX' (Trigger Pulse)
@@ -194,17 +194,17 @@ unsigned long rebootScheduledAt = 0;
 
 float measureRawDistanceCm() {
 #if USE_UART_MODE
-  while (Serial2.available()) Serial2.read();
-  Serial2.write(0x55);
-
-  unsigned long startWait = millis();
-  while (Serial2.available() < 4 && (millis() - startWait < 120)) {
-    delay(2);
+  if (Serial2.available() < 4) {
+    Serial2.write(0x55);
+    unsigned long startWait = millis();
+    while (Serial2.available() < 4 && (millis() - startWait < 150)) {
+      delay(3);
+    }
   }
 
-  if (Serial2.available() >= 4) {
-    uint8_t header = Serial2.read();
-    if (header == 0xFF) {
+  while (Serial2.available() >= 4) {
+    if (Serial2.peek() == 0xFF) {
+      uint8_t header   = Serial2.read(); // 0xFF
       uint8_t highByte = Serial2.read();
       uint8_t lowByte  = Serial2.read();
       uint8_t checksum = Serial2.read();
@@ -215,7 +215,7 @@ float measureRawDistanceCm() {
         return distMm / 10.0;
       }
     } else {
-      while (Serial2.available()) Serial2.read();
+      Serial2.read();
     }
   }
   return -1.0;
