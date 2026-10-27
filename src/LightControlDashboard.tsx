@@ -142,6 +142,7 @@ void pollCloud() {
       applyOutput(PIN_RELAY_CH4, ch4_state);
     }
     http.end();
+    client.stop();
   }
 }
 
