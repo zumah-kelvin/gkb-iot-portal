@@ -423,9 +423,9 @@ void pollCloudLightState() {
 
   WiFiClientSecure client;
   client.setInsecure();
-  client.setTimeout(4);
+  client.setTimeout(10); // 10-second TCP timeout for cellular hotspots
   HTTPClient http;
-  http.setTimeout(4000);
+  http.setTimeout(10000); // 10,000ms HTTP read timeout prevents -11 & -1
 
   String restUrl = getCloudRestUrl();
   if (http.begin(client, restUrl.c_str())) {

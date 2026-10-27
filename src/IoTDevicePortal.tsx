@@ -778,7 +778,7 @@ function GenericFleetPreviewDashboard({
 
 // ================= MAIN IOT DEVICE PORTAL =================
 export default function IoTDevicePortal() {
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'support' | 'contact'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'fleet' | 'dashboard' | 'support' | 'contact'>('fleet');
   const [isLightMode, setIsLightMode] = useState(
     () => window.localStorage.getItem('gkb-theme') === 'light'
   );
@@ -956,12 +956,22 @@ export default function IoTDevicePortal() {
           <nav aria-label="Main navigation" className="hidden md:flex items-center space-x-1.5">
             <button
               type="button"
+              onClick={() => setActiveTab('fleet')}
+              className={`px-4 py-2 rounded-xl text-sm font-bold transition-all cursor-pointer ${activeTab === 'fleet' ? 'bg-cyan-500/15 text-cyan-300 border border-cyan-400/60 shadow-[0_0_15px_rgba(6,182,212,0.25)]' : 'text-slate-400 hover:text-cyan-300'}`}
+            >
+              <span className="flex items-center gap-2">
+                <Layers className="h-4 w-4" />
+                Hardware Fleet
+              </span>
+            </button>
+            <button
+              type="button"
               onClick={() => setActiveTab('dashboard')}
               className={`px-4 py-2 rounded-xl text-sm font-bold transition-all cursor-pointer ${activeTab === 'dashboard' ? 'bg-cyan-500/15 text-cyan-300 border border-cyan-400/60 shadow-[0_0_15px_rgba(6,182,212,0.25)]' : 'text-slate-400 hover:text-cyan-300'}`}
             >
               <span className="flex items-center gap-2">
                 <Cpu className="h-4 w-4" />
-                Relay Test & Provisioning
+                Active Device
               </span>
             </button>
             <button
@@ -1018,10 +1028,17 @@ export default function IoTDevicePortal() {
         <nav className="flex md:hidden gap-1 overflow-x-auto border-t border-slate-800/70 px-3 py-2">
           <button
             type="button"
+            onClick={() => setActiveTab('fleet')}
+            className={`px-3 py-1.5 rounded-md text-xs font-medium whitespace-nowrap cursor-pointer ${activeTab === 'fleet' ? 'bg-cyan-500/10 text-cyan-400 border border-cyan-500/40' : 'text-slate-400'}`}
+          >
+            Hardware Fleet
+          </button>
+          <button
+            type="button"
             onClick={() => setActiveTab('dashboard')}
             className={`px-3 py-1.5 rounded-md text-xs font-medium whitespace-nowrap cursor-pointer ${activeTab === 'dashboard' ? 'bg-cyan-500/10 text-cyan-400 border border-cyan-500/40' : 'text-slate-400'}`}
           >
-            Relay Test & Provisioning
+            Active Device
           </button>
           <button
             type="button"
@@ -1041,7 +1058,171 @@ export default function IoTDevicePortal() {
       </header>
 
       {/* Main Body */}
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8">
+        {/* ================= HARDWARE FLEET LANDING VIEW ================= */}
+        {activeTab === 'fleet' && (
+          <div className="space-y-8 animate-fadeIn">
+            {/* Quick Connect Hero */}
+            <section className="rounded-3xl border border-cyan-500/30 bg-gradient-to-r from-slate-900 via-slate-900/90 to-slate-950 p-6 sm:p-10 shadow-[0_0_35px_rgba(6,182,212,0.15)] space-y-5">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <span className="inline-flex items-center gap-1.5 rounded-full border border-cyan-400/40 bg-cyan-400/10 px-3 py-1 text-xs font-bold uppercase tracking-widest text-cyan-300">
+                  <Radio className="h-3.5 w-3.5 animate-pulse" /> Direct Hardware Connector
+                </span>
+                {!user && (
+                  <button
+                    type="button"
+                    onClick={() => setLoginModalOpen(true)}
+                    className="inline-flex items-center gap-1.5 rounded-xl border border-purple-500/40 bg-purple-500/10 px-3.5 py-1.5 text-xs font-bold text-purple-300 hover:bg-purple-500/20 cursor-pointer transition-all"
+                  >
+                    <User className="h-3.5 w-3.5" /> Client Sign In / Register
+                  </button>
+                )}
+              </div>
+
+              <h2 className="text-3xl sm:text-5xl font-black tracking-tight text-white leading-tight">
+                CONNECT YOUR GKB IOT DEVICE
+              </h2>
+              <p className="max-w-2xl text-sm sm:text-base text-slate-300 leading-relaxed">
+                Enter your device's provisioned special key below to immediately launch its real-time telemetry dashboard, sensor feeds, and relay controls.
+              </p>
+
+              {/* Input Key Form */}
+              <form onSubmit={handleKeySearch} className="flex max-w-2xl flex-col gap-3 sm:flex-row pt-2">
+                <input
+                  type="text"
+                  placeholder="Enter Special Key (e.g. GKB-LIGHT-0001, GKB-RELAY-0001…)"
+                  value={inputKey}
+                  onChange={e => setInputKey(e.target.value)}
+                  className="min-w-0 flex-1 rounded-xl border border-slate-700 bg-slate-950 px-4 py-3 font-mono text-sm text-white focus:border-cyan-400 focus:outline-none"
+                  required
+                />
+                <button
+                  type="submit"
+                  disabled={linkBusy}
+                  className="inline-flex items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-cyan-500 to-purple-600 px-6 py-3 text-sm font-bold uppercase tracking-wider text-black shadow-lg shadow-cyan-500/25 hover:opacity-90 transition-all disabled:opacity-50 cursor-pointer"
+                >
+                  <Cpu className="h-4 w-4" />
+                  Connect Key
+                </button>
+              </form>
+
+              {/* Demo Keys Quick Selector Pills */}
+              <div className="space-y-2 pt-2">
+                <p className="text-xs font-bold uppercase tracking-wider text-slate-400">Quick Test Keys:</p>
+                <div className="flex flex-wrap gap-2">
+                  {defaultDevices.map(def => (
+                    <button
+                      key={def.key}
+                      type="button"
+                      onClick={() => {
+                        setSelectedDevice(def);
+                        setActiveTab('dashboard');
+                        window.scrollTo({ top: 0, behavior: 'smooth' });
+                      }}
+                      className="rounded-lg border border-slate-800 bg-slate-900/80 px-2.5 py-1 text-xs font-mono text-cyan-300 hover:border-cyan-400 hover:bg-cyan-500/10 transition-colors cursor-pointer"
+                    >
+                      {def.name.split(' (')[0].replace('ESP32 ', '')} ({def.key})
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {linkMessage && (
+                <p className={`text-xs p-3 rounded-lg border ${linkMessageIsError ? 'border-red-500/30 bg-red-500/10 text-red-300' : 'border-emerald-500/30 bg-emerald-500/10 text-emerald-300'}`}>
+                  {linkMessage}
+                </p>
+              )}
+            </section>
+
+            {/* Hardware Fleet Catalog Cards */}
+            <section className="space-y-4">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                <div>
+                  <h3 className="text-xl sm:text-2xl font-black text-white">Supported Hardware Devices</h3>
+                  <p className="text-xs text-slate-400 mt-1">Select any verified hardware node to launch its live control interface and cloud telemetry.</p>
+                </div>
+              </div>
+
+              <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+                {defaultDevices.map(device => {
+                  const isLight = device.project === 'light-control';
+                  const isRelay = device.project === 'relay-test';
+
+                  return (
+                    <article
+                      key={device.id}
+                      className={`flex flex-col justify-between p-5 rounded-2xl border transition-all duration-200 ${
+                        isLight
+                          ? 'border-amber-500/40 bg-gradient-to-br from-amber-500/10 via-slate-900 to-slate-950 shadow-[0_0_20px_rgba(245,158,11,0.1)]'
+                          : isRelay
+                            ? 'border-cyan-500/40 bg-gradient-to-br from-cyan-500/10 via-slate-900 to-slate-950 shadow-[0_0_20px_rgba(6,182,212,0.1)]'
+                            : 'border-slate-800 bg-slate-900/60 hover:border-slate-700'
+                      }`}
+                    >
+                      <div className="space-y-3">
+                        <div className="flex items-center justify-between">
+                          <span className={`text-[10px] font-mono uppercase tracking-wider font-bold px-2 py-0.5 rounded-md border ${
+                            isLight
+                              ? 'text-amber-300 bg-amber-500/15 border-amber-500/30'
+                              : isRelay
+                                ? 'text-cyan-300 bg-cyan-500/15 border-cyan-500/30'
+                                : 'text-slate-300 bg-slate-800 border-slate-700'
+                          }`}>
+                            {device.key}
+                          </span>
+                          <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-full">
+                            <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" /> Verified Node
+                          </span>
+                        </div>
+
+                        <div>
+                          <h4 className="text-base font-bold text-white flex items-center gap-2">
+                            {isLight ? (
+                              <Lightbulb className="h-4 w-4 text-amber-400 shrink-0" />
+                            ) : isRelay ? (
+                              <Cpu className="h-4 w-4 text-cyan-400 shrink-0" />
+                            ) : device.project === 'water-tank-monitor' ? (
+                              <Droplets className="h-4 w-4 text-sky-400 shrink-0" />
+                            ) : device.project === 'fuel-tank-monitor' ? (
+                              <Fuel className="h-4 w-4 text-emerald-400 shrink-0" />
+                            ) : device.project === 'prepaid-energy-meter' ? (
+                              <Zap className="h-4 w-4 text-yellow-400 shrink-0" />
+                            ) : device.project === 'fan-regulator' ? (
+                              <Wind className="h-4 w-4 text-blue-400 shrink-0" />
+                            ) : (
+                              <FlaskConical className="h-4 w-4 text-purple-400 shrink-0" />
+                            )}
+                            {device.name}
+                          </h4>
+                          <p className="text-xs text-slate-400 mt-1 leading-relaxed">{device.lastAlert}</p>
+                        </div>
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSelectedDevice(device);
+                          setActiveTab('dashboard');
+                          window.scrollTo({ top: 0, behavior: 'smooth' });
+                        }}
+                        className={`mt-5 inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-xs font-bold uppercase tracking-wider transition-all cursor-pointer ${
+                          isLight
+                            ? 'bg-gradient-to-r from-amber-400 to-amber-500 text-black shadow-md shadow-amber-500/20 hover:opacity-90'
+                            : isRelay
+                              ? 'bg-gradient-to-r from-cyan-400 to-cyan-500 text-black shadow-md shadow-cyan-500/20 hover:opacity-90'
+                              : 'border border-slate-700 bg-slate-800 text-slate-200 hover:bg-slate-700 hover:text-white'
+                        }`}
+                      >
+                        Open Dashboard
+                        <ArrowRight className="h-3.5 w-3.5" />
+                      </button>
+                    </article>
+                  );
+                })}
+              </div>
+            </section>
+          </div>
+        )}
         {/* Hardware Fleet Navigation Bar */}
         <div className="mb-6 space-y-3">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 rounded-2xl border border-slate-800 bg-slate-900/80 p-4">
@@ -1153,6 +1334,27 @@ export default function IoTDevicePortal() {
         {/* ================= PRIMARY DASHBOARD VIEW ================= */}
         {activeTab === 'dashboard' && (
           <div className="space-y-6 animate-fadeIn">
+            {/* Top Back Navigation Bar */}
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3 rounded-2xl border border-slate-800 bg-slate-900/80">
+              <button
+                type="button"
+                onClick={() => {
+                  setActiveTab('fleet');
+                  window.scrollTo({ top: 0, behavior: 'smooth' });
+                }}
+                className="inline-flex items-center gap-2 rounded-xl border border-slate-700 bg-slate-800 px-3.5 py-1.5 text-xs font-bold text-slate-200 hover:border-cyan-400 hover:text-cyan-300 transition-colors cursor-pointer w-fit"
+              >
+                <ArrowRight className="h-4 w-4 rotate-180" />
+                Back to Hardware Fleet
+              </button>
+
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-slate-400">Active Node:</span>
+                <span className="text-xs font-mono font-bold text-cyan-300 bg-slate-950 px-3 py-1 rounded-lg border border-cyan-500/30">
+                  {selectedDevice.name} ({selectedDevice.key})
+                </span>
+              </div>
+            </div>
             {selectedDevice.project === 'relay-test' ? (
               <RelayTestDashboard mode="service" />
             ) : selectedDevice.project === 'light-control' ? (
