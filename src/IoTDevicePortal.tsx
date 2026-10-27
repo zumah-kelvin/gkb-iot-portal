@@ -38,7 +38,7 @@ export type Device = {
   lastAlert: string;
   project?: StudentProject;
   legacyKeys?: string[];
-  relayChannels?: 4 | 6 | 8;
+  relayChannels?: 2 | 4 | 6 | 8;
   paused?: boolean;
 };
 
@@ -64,12 +64,22 @@ const defaultDevices: Device[] = [
     relayChannels: 4
   },
   {
+    id: 10,
+    name: 'Smart Light Control System · 2-Channel Relay',
+    key: 'GKB-LIGHT-0001V0',
+    legacyKeys: ['GKB-LIGHT2CH-0001'],
+    status: 'Active Target',
+    lastAlert: '2-Relay Channel Board · Dual-Zone Lighting · GPIO 23, 22',
+    project: 'light-control',
+    relayChannels: 2
+  },
+  {
     id: 3,
     name: 'Smart Light Control System v2 · 6-Channel Relay',
     key: 'GKB-LIGHT-0001V2',
     legacyKeys: ['GKB-LIGHTV2-0001'],
-    status: 'Fleet',
-    lastAlert: '6-Relay Channel Board · Multi-Zone Lighting',
+    status: 'Active Target',
+    lastAlert: '6-Relay Channel Board · Multi-Zone Lighting · GPIO 23, 22, 21, 19, 18, 5',
     project: 'light-control',
     relayChannels: 6
   },
@@ -78,8 +88,8 @@ const defaultDevices: Device[] = [
     name: 'Smart Light Control System v3 · 8-Channel Relay',
     key: 'GKB-LIGHT-0001V3',
     legacyKeys: ['GKB-LIGHTV3-0001'],
-    status: 'Fleet',
-    lastAlert: '8-Relay Channel Board · Industrial Lighting Array',
+    status: 'Active Target',
+    lastAlert: '8-Relay Channel Board · Industrial Lighting Array · GPIO 23, 22, 21, 19, 18, 5, 25, 26',
     project: 'light-control',
     relayChannels: 8
   },

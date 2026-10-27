@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import {
   Lightbulb, Pencil, Save, X, Activity, Wifi, Server,
   Bluetooth, QrCode, Printer, Code, Zap, Check, Copy,
@@ -15,7 +15,7 @@ export type Device = {
   lastAlert: string;
   project?: string;
   legacyKeys?: string[];
-  relayChannels?: 4 | 6 | 8;
+  relayChannels?: 2 | 4 | 6 | 8;
   paused?: boolean;
 };
 
@@ -37,10 +37,10 @@ const GPIO_MAP: Record<number, number> = {
   2: 22, // Relay 2 -> GPIO 22
   3: 21, // Relay 3 -> GPIO 21
   4: 19, // Relay 4 -> GPIO 19
-  5: 18, // Relay 5 -> GPIO 18 (for 6/8 ch)
+  5: 18, // Relay 5 -> GPIO 18
   6: 5,  // Relay 6 -> GPIO 5
-  7: 4,  // Relay 7 -> GPIO 4
-  8: 15  // Relay 8 -> GPIO 15
+  7: 25, // Relay 7 -> GPIO 25
+  8: 26  // Relay 8 -> GPIO 26
 };
 
 const DEFAULT_NAMES: Record<number, string> = {
@@ -54,7 +54,38 @@ const DEFAULT_NAMES: Record<number, string> = {
   8: 'Security Perimeter Floodlight'
 };
 
+export function getLightDeviceId(device: Device): string {
+  if (device.relayChannels === 2 || device.key?.includes('V0')) return 'light_00';
+  if (device.relayChannels === 6 || device.key?.includes('V2')) return 'light_02';
+  if (device.relayChannels === 8 || device.key?.includes('V3')) return 'light_03';
+  return 'light_01'; // Default 4-channel device
+}
+
 function generateLightArduinoCode(deviceKey: string = 'GKB-LIGHT-0001V1', channels: number = 4): string {
+  const targetId = deviceKey.includes('V0') || channels === 2
+    ? 'light_00'
+    : deviceKey.includes('V2') || channels === 6
+    ? 'light_02'
+    : deviceKey.includes('V3') || channels === 8
+    ? 'light_03'
+    : 'light_01';
+
+  const selectCols = Array.from({ length: channels }, (_, i) => `ch${i + 1}`).join(',');
+  const pinEntries = Array.from({ length: channels }, (_, i) => {
+    const ch = i + 1;
+    const pin = GPIO_MAP[ch] ?? 23;
+    return ` *                      - Channel ${ch}: GPIO ${pin} (${DEFAULT_NAMES[ch] || `Light ${ch}`})`;
+  }).join('\n');
+
+  const pinDefines = Array.from({ length: channels }, (_, i) => {
+    const ch = i + 1;
+    const pin = GPIO_MAP[ch] ?? 23;
+    return `#define PIN_RELAY_CH${ch}       ${pin}   // Relay Channel ${ch}`;
+  }).join('\n');
+
+  const pinArray = Array.from({ length: channels }, (_, i) => `PIN_RELAY_CH${i + 1}`).join(', ');
+  const initStates = Array.from({ length: channels }, () => 'false').join(', ');
+
   return `/*
  * =========================================================================================
  * GKB TECHNOLOGIES — ESP32 SMART LIGHT CONTROL SYSTEM (${channels}-CHANNEL RELAY)
@@ -62,19 +93,24 @@ function generateLightArduinoCode(deviceKey: string = 'GKB-LIGHT-0001V1', channe
  * Target Board       : ESP32 Dev Module / NodeMCU-32S / ESP-WROOM-32
  * Device Token Model : Unique Hardware Casing Token (Default: ${deviceKey})
  * Target Outputs     : ${channels}-Channel Relay Board:
- *                      - Channel 1: GPIO 23 (Light 1)
- *                      - Channel 2: GPIO 22 (Light 2)
- *                      - Channel 3: GPIO 21 (Light 3)
- *                      - Channel 4: GPIO 19 (Light 4)${channels >= 6 ? '\n *                      - Channel 5: GPIO 18 (Light 5)\n *                      - Channel 6: GPIO 5  (Light 6)' : ''}${channels >= 8 ? '\n *                      - Channel 7: GPIO 4  (Light 7)\n *                      - Channel 8: GPIO 15 (Light 8)' : ''}
+${pinEntries}
  * Status Diagnostic  : Onboard Blue LED (GPIO 2)
  * Factory Reset Button: Onboard BOOT Button (GPIO 0, Hold for 5s)
  * Storage Engine     : Non-Volatile Flash Partition (ESP32 Preferences.h / NVS)
  * Connectivity       : Dual-Mode (BLE 4.2 GATT Provisioning + 2.4GHz Wi-Fi Cloud Polling)
- * Cloud Backend      : Supabase public.light_control_status (device_id: light_01)
+ * Cloud Backend      : Supabase public.light_control_status (device_id: ${targetId})
+ * =========================================================================================
+ * STANDARDIZED PROVISIONING ARCHITECTURE:
+ * 1. Boot-up: Reads Preferences NVS namespace ("gkb_prov"). If provisioned, connects to Wi-Fi.
+ * 2. BLE Handshake: If unprovisioned, starts BLE GATT Server ("GKB-LIGHT-0001").
+ * 3. Device QR Tagging: Web transmits "VERIFY:${deviceKey}" over BLE.
+ * 4. Credential Transfer: Web transmits "SET_WIFI:{\\"ssid\\":\\"...\\",\\"pass\\":\\"...\\"}".
+ * 5. Cloud Actuation: ESP32 joins Wi-Fi, injects 8.8.8.8/1.1.1.1 DNS, and polls Supabase every 2.5s.
  * =========================================================================================
  */
 
 #include <WiFi.h>
+#include <lwip/dns.h>
 #include <WiFiClientSecure.h>
 #include <HTTPClient.h>
 #include <Preferences.h>
@@ -83,36 +119,55 @@ function generateLightArduinoCode(deviceKey: string = 'GKB-LIGHT-0001V1', channe
 #include <BLEUtils.h>
 #include <BLE2902.h>
 
-#define PIN_RELAY_CH1       23
-#define PIN_RELAY_CH2       22
-#define PIN_RELAY_CH3       21
-#define PIN_RELAY_CH4       19
-#define PIN_STATUS_LED      2
-#define PIN_BOOT_BUTTON     0
+// ================= HARDWARE PINOUT ASSIGNMENTS =================
+#define TOTAL_CHANNELS      ${channels}
+${pinDefines}
+#define PIN_STATUS_LED      2    // ESP32 GPIO 2  -> Onboard Blue LED
+#define PIN_BOOT_BUTTON     0    // ESP32 GPIO 0  -> BOOT Button (Factory Reset)
 
+// Set to true if your relay module is Active HIGH (5V/3.3V trigger), false if Active LOW
 #define RELAY_ACTIVE_HIGH   true
+
+const int RELAY_PINS[TOTAL_CHANNELS] = { ${pinArray} };
+
+// ================= DEVICE IDENTITY & SECURITY KEY =================
 #define DEFAULT_DEVICE_KEY  "${deviceKey}"
 
+// ================= BLE GATT SPECIFICATIONS =================
 #define GKB_BLE_SERVICE_UUID "4fafc201-1fb5-459e-8fcc-c5c9c331914b"
 #define GKB_BLE_CHAR_RX_UUID "beb5483e-36e1-4688-b7f5-ea07361b26a8"
 #define GKB_BLE_CHAR_TX_UUID "beb5483f-36e1-4688-b7f5-ea07361b26a9"
 
-const char* SUPABASE_REST_URL = "https://ditnksmvcacnzdguqcgz.supabase.co/rest/v1/light_control_status?device_id=eq.light_01&select=ch1,ch2,ch3,ch4";
+// ================= SUPABASE CLOUD REST ENDPOINT =================
+const char* SUPABASE_REST_URL = "https://ditnksmvcacnzdguqcgz.supabase.co/rest/v1/light_control_status?device_id=eq.${targetId}&select=${selectCols}";
 const char* SUPABASE_ANON_KEY = "sb_publishable_33KQl1SmvaBaqNzxWJiyzw_HuLMgWAl";
 
+// ================= SYSTEM STATE =================
 Preferences preferences;
-String deviceKey = DEFAULT_DEVICE_KEY;
-String wifiSSID = "";
-String wifiPassword = "";
-bool isProvisioned = false;
-bool bleClientConnected = false;
-bool qrAuthenticated = false;
 
-bool ch1_state = false, ch2_state = false, ch3_state = false, ch4_state = false;
+enum DeviceOperatingMode {
+  MODE_PROVISIONING_BLE,
+  MODE_CONNECTING_WIFI,
+  MODE_OPERATIONAL_CLOUD
+};
+
+DeviceOperatingMode currentMode = MODE_PROVISIONING_BLE;
+
+String deviceKey          = DEFAULT_DEVICE_KEY;
+String wifiSSID           = "";
+String wifiPassword       = "";
+bool   isProvisioned      = false;
+bool   bleClientConnected = false;
+bool   qrAuthenticated    = false;
+
+bool   channelStates[TOTAL_CHANNELS] = { ${initStates} };
 
 BLEServer* pBleServer = nullptr;
 BLECharacteristic* pTxCharacteristic = nullptr;
+
 unsigned long lastCloudPoll = 0;
+const unsigned long CLOUD_POLL_INTERVAL_MS = 2500;
+
 bool pendingReboot = false;
 unsigned long rebootScheduledAt = 0;
 
@@ -120,26 +175,34 @@ void applyOutput(int pin, bool state) {
   digitalWrite(pin, (RELAY_ACTIVE_HIGH ? state : !state) ? HIGH : LOW);
 }
 
-void pollCloud() {
+void pollCloudLightState() {
   if (WiFi.status() != WL_CONNECTED) return;
+
   WiFiClientSecure client;
   client.setInsecure();
   client.setTimeout(4);
+
   HTTPClient http;
   http.setTimeout(4000);
+
   if (http.begin(client, SUPABASE_REST_URL)) {
     http.addHeader("apikey", SUPABASE_ANON_KEY);
     http.addHeader("Authorization", String("Bearer ") + SUPABASE_ANON_KEY);
-    if (http.GET() == 200) {
-      String p = http.getString();
-      ch1_state = p.indexOf("\\"ch1\\":true") != -1;
-      ch2_state = p.indexOf("\\"ch2\\":true") != -1;
-      ch3_state = p.indexOf("\\"ch3\\":true") != -1;
-      ch4_state = p.indexOf("\\"ch4\\":true") != -1;
-      applyOutput(PIN_RELAY_CH1, ch1_state);
-      applyOutput(PIN_RELAY_CH2, ch2_state);
-      applyOutput(PIN_RELAY_CH3, ch3_state);
-      applyOutput(PIN_RELAY_CH4, ch4_state);
+
+    int httpResponseCode = http.GET();
+    if (httpResponseCode == 200) {
+      String payload = http.getString();
+      for (int i = 0; i < TOTAL_CHANNELS; i++) {
+        String searchKey = "\\"ch" + String(i + 1) + "\\":true";
+        bool nextState = payload.indexOf(searchKey) != -1;
+        if (channelStates[i] != nextState) {
+          channelStates[i] = nextState;
+          applyOutput(RELAY_PINS[i], nextState);
+          Serial.printf("⚡ [CH%d] Relay Output: %s (GPIO %d)\\n", i + 1, nextState ? "ON" : "OFF", RELAY_PINS[i]);
+        }
+      }
+    } else {
+      Serial.printf("⚠️ [CLOUD] Light status poll returned HTTP %d\\n", httpResponseCode);
     }
     http.end();
   }
@@ -148,41 +211,80 @@ void pollCloud() {
 
 void setup() {
   Serial.begin(115200);
+  delay(100);
+
   pinMode(PIN_BOOT_BUTTON, INPUT_PULLUP);
   pinMode(PIN_STATUS_LED, OUTPUT);
-  pinMode(PIN_RELAY_CH1, OUTPUT);
-  pinMode(PIN_RELAY_CH2, OUTPUT);
-  pinMode(PIN_RELAY_CH3, OUTPUT);
-  pinMode(PIN_RELAY_CH4, OUTPUT);
-  applyOutput(PIN_RELAY_CH1, false);
-  applyOutput(PIN_RELAY_CH2, false);
-  applyOutput(PIN_RELAY_CH3, false);
-  applyOutput(PIN_RELAY_CH4, false);
+  digitalWrite(PIN_STATUS_LED, LOW);
+
+  for (int i = 0; i < TOTAL_CHANNELS; i++) {
+    pinMode(RELAY_PINS[i], OUTPUT);
+    applyOutput(RELAY_PINS[i], false);
+  }
 
   preferences.begin("gkb_prov", false);
-  isProvisioned = preferences.getBool("is_prov", false);
-  wifiSSID = preferences.getString("wifi_ssid", "");
-  wifiPassword = preferences.getString("wifi_pass", "");
-  preferences.end();
+  isProvisioned = preferences.getBool("provisioned", false);
+  deviceKey     = preferences.getString("device_key", DEFAULT_DEVICE_KEY);
+  wifiSSID      = preferences.getString("wifi_ssid", "");
+  wifiPassword  = preferences.getString("wifi_pass", "");
+
+  Serial.println("=======================================================");
+  Serial.printf("⚡ GKB TECHNOLOGIES — ESP32 SMART LIGHT SYSTEM (%d-CH)\\n", TOTAL_CHANNELS);
+  Serial.println("=======================================================");
+  Serial.printf("🔑 Casing Device Key   : %s\\n", deviceKey.c_str());
+  Serial.printf("📦 Provisioning Status : %s\\n", isProvisioned ? "PROVISIONED" : "UNPROVISIONED");
 
   if (isProvisioned && wifiSSID.length() > 0) {
+    currentMode = MODE_CONNECTING_WIFI;
+    WiFi.mode(WIFI_STA);
     WiFi.begin(wifiSSID.c_str(), wifiPassword.c_str());
   } else {
+    currentMode = MODE_PROVISIONING_BLE;
     BLEDevice::init("GKB-LIGHT-0001");
     pBleServer = BLEDevice::createServer();
-    BLEService* s = pBleServer->createService(GKB_BLE_SERVICE_UUID);
-    // Standard GATT configuration...
-    s->start();
+    BLEService* pService = pBleServer->createService(GKB_BLE_SERVICE_UUID);
+    pTxCharacteristic = pService->createCharacteristic(
+      GKB_BLE_CHAR_TX_UUID,
+      BLECharacteristic::PROPERTY_NOTIFY
+    );
+    pTxCharacteristic->addDescriptor(new BLE2902());
+    pService->start();
+    BLEAdvertising* pAdvertising = BLEDevice::getAdvertising();
+    pAdvertising->addServiceUUID(GKB_BLE_SERVICE_UUID);
+    pAdvertising->setScanResponse(true);
     BLEDevice::startAdvertising();
   }
 }
 
 void loop() {
-  if (pendingReboot && millis() >= rebootScheduledAt) ESP.restart();
-  if (WiFi.status() == WL_CONNECTED && millis() - lastCloudPoll >= 2500) {
-    lastCloudPoll = millis();
-    pollCloud();
+  if (pendingReboot && millis() >= rebootScheduledAt) {
+    ESP.restart();
   }
+
+  if (currentMode == MODE_CONNECTING_WIFI) {
+    if (WiFi.status() == WL_CONNECTED) {
+      currentMode = MODE_OPERATIONAL_CLOUD;
+      digitalWrite(PIN_STATUS_LED, HIGH);
+      ip_addr_t primaryDns, secondaryDns;
+      IP_ADDR4(&primaryDns, 8, 8, 8, 8);
+      IP_ADDR4(&secondaryDns, 1, 1, 1, 1);
+      dns_setserver(0, &primaryDns);
+      dns_setserver(1, &secondaryDns);
+      pollCloudLightState();
+    }
+  } else if (currentMode == MODE_OPERATIONAL_CLOUD) {
+    if (WiFi.status() == WL_CONNECTED) {
+      if (millis() - lastCloudPoll >= CLOUD_POLL_INTERVAL_MS) {
+        lastCloudPoll = millis();
+        pollCloudLightState();
+      }
+    } else {
+      digitalWrite(PIN_STATUS_LED, LOW);
+      currentMode = MODE_CONNECTING_WIFI;
+      WiFi.reconnect();
+    }
+  }
+
   delay(15);
 }
 `;
@@ -237,6 +339,7 @@ export default function LightControlDashboard({
   device: Device;
 }) {
   const relayChannels = device.relayChannels ?? 4;
+  const targetDeviceId = useMemo(() => getLightDeviceId(device), [device]);
 
   // BLE & QR Provisioning Modal States
   const [provisionModalOpen, setProvisionModalOpen] = useState(false);
@@ -249,7 +352,6 @@ export default function LightControlDashboard({
   const [isSyncing, setIsSyncing] = useState(false);
 
   // Anti-snapback lock map: channel -> { target: boolean, expiresAt: number }
-  // Keeps optimistic toggle ON while the asynchronous network write is in flight
   const pendingTogglesRef = useRef<Map<number, { target: boolean; expiresAt: number }>>(new Map());
   const fetchStatusRef = useRef<(() => Promise<void>) | null>(null);
 
@@ -272,17 +374,47 @@ export default function LightControlDashboard({
     });
   });
 
+  // Re-synchronize channels whenever selected device key or relayChannels changes
+  useEffect(() => {
+    setLights(
+      Array.from({ length: relayChannels }, (_, index) => {
+        const channel = index + 1;
+        let savedName = '';
+        try {
+          const stored = window.localStorage.getItem(`gkb-light-name:${device.key}:${channel}`);
+          if (stored) savedName = stored;
+        } catch {}
+
+        return {
+          channel,
+          name: savedName || DEFAULT_NAMES[channel] || `Light ${channel}`,
+          gpio: GPIO_MAP[channel] ?? 23,
+          isOn: false
+        };
+      })
+    );
+    pendingTogglesRef.current.clear();
+    setSyncError('');
+    setSyncMessage('');
+  }, [device.key, relayChannels]);
+
   const [editingChannel, setEditingChannel] = useState<number | null>(null);
   const [nameDraft, setNameDraft] = useState('');
   const [activity, setActivity] = useState<DeviceControlActivity[]>([
     {
       id: 'init',
-      event: `Light controller initialized · ${relayChannels} relay channels ready`,
+      event: `Light controller initialized · ${relayChannels} relay channels ready (${targetDeviceId})`,
       timestamp: 'Just now'
     }
   ]);
 
   const [isTestingLink, setIsTestingLink] = useState(false);
+
+  // Computed columns to fetch
+  const selectColumns = useMemo(() => {
+    const cols = Array.from({ length: relayChannels }, (_, i) => `ch${i + 1}`);
+    return `${cols.join(', ')}, updated_at`;
+  }, [relayChannels]);
 
   // Poll Supabase light_control_status every 2.5s with optimistic lock protection and REST fallback
   useEffect(() => {
@@ -299,7 +431,7 @@ export default function LightControlDashboard({
             const { data, error } = await relaySupabase
               .from('light_control_status')
               .select('ch1, ch2, ch3, ch4, ch5, ch6, ch7, ch8, updated_at')
-              .eq('device_id', 'light_01')
+              .eq('device_id', targetDeviceId)
               .maybeSingle();
 
             if (!error && data) rowData = data as Record<string, unknown>;
@@ -309,7 +441,23 @@ export default function LightControlDashboard({
         // Tier 2: Direct Native Browser Fetch SELECT (failsafe)
         if (!rowData) {
           try {
-            const res = await fetch(`${HARDCODED_SUPABASE_URL}/rest/v1/light_control_status?device_id=eq.light_01&select=ch1,ch2,ch3,ch4,ch5,ch6,ch7,ch8,updated_at`, {
+            const res = await fetch(`${HARDCODED_SUPABASE_URL}/rest/v1/light_control_status?device_id=eq.${targetDeviceId}&select=ch1,ch2,ch3,ch4,ch5,ch6,ch7,ch8,updated_at`, {
+              headers: {
+                'apikey': HARDCODED_SUPABASE_KEY,
+                'Authorization': `Bearer ${HARDCODED_SUPABASE_KEY}`
+              }
+            });
+            if (res.ok) {
+              const arr = await res.json();
+              if (Array.isArray(arr) && arr.length > 0) rowData = arr[0];
+            }
+          } catch {}
+        }
+
+        // Tier 3: If target is 2-channel (light_00) and not found, gracefully read light_01
+        if (!rowData && targetDeviceId === 'light_00') {
+          try {
+            const res = await fetch(`${HARDCODED_SUPABASE_URL}/rest/v1/light_control_status?device_id=eq.light_01&select=ch1,ch2,updated_at`, {
               headers: {
                 'apikey': HARDCODED_SUPABASE_KEY,
                 'Authorization': `Bearer ${HARDCODED_SUPABASE_KEY}`
@@ -358,20 +506,21 @@ export default function LightControlDashboard({
 
     fetchStatusRef.current = fetchStatus;
     void fetchStatus();
+
     const intervalId = window.setInterval(() => void fetchStatus(), 2500);
     return () => {
       disposed = true;
       fetchStatusRef.current = null;
       window.clearInterval(intervalId);
     };
-  }, [mode, device.key]);
+  }, [mode, device.key, targetDeviceId, relayChannels]);
 
   const testCloudConnection = async () => {
     setIsTestingLink(true);
     setSyncError('');
     const startTime = Date.now();
     try {
-      const res = await fetch(`${HARDCODED_SUPABASE_URL}/rest/v1/light_control_status?device_id=eq.light_01&select=ch1,ch2,ch3,ch4,updated_at`, {
+      const res = await fetch(`${HARDCODED_SUPABASE_URL}/rest/v1/light_control_status?device_id=eq.${targetDeviceId}&select=ch1,ch2,ch3,ch4,ch5,ch6,ch7,ch8,updated_at`, {
         headers: {
           'apikey': HARDCODED_SUPABASE_KEY,
           'Authorization': `Bearer ${HARDCODED_SUPABASE_KEY}`
@@ -391,10 +540,13 @@ export default function LightControlDashboard({
             return typeof cloudVal === 'boolean' ? { ...light, isOn: cloudVal } : light;
           })
         );
-        const statusSummary = `CH1:${row.ch1 ? 'ON' : 'OFF'} CH2:${row.ch2 ? 'ON' : 'OFF'} CH3:${row.ch3 ? 'ON' : 'OFF'} CH4:${row.ch4 ? 'ON' : 'OFF'}`;
-        setSyncMessage(`⚡ Supabase Live! Latency: ${latency}ms | Row: light_01 online (${statusSummary})`);
+        const statusSummary = Array.from({ length: relayChannels }, (_, i) => {
+          const ch = i + 1;
+          return `CH${ch}:${row[`ch${ch}`] ? 'ON' : 'OFF'}`;
+        }).join(' ');
+        setSyncMessage(`⚡ Supabase Live! Latency: ${latency}ms | Row: ${targetDeviceId} (${statusSummary})`);
       } else {
-        setSyncError('Connected, but light_01 row was not returned.');
+        setSyncError(`Connected, but ${targetDeviceId} row was not returned. Run migration in Supabase if needed.`);
       }
     } catch (err) {
       setSyncError(`Cloud test failed: ${err instanceof Error ? err.message : 'Network error'}`);
@@ -442,7 +594,7 @@ export default function LightControlDashboard({
         const { error } = await relaySupabase
           .from('light_control_status')
           .update({ [`ch${channel}`]: nextState })
-          .eq('device_id', 'light_01');
+          .eq('device_id', targetDeviceId);
         if (!error) {
           success = true;
         } else {
@@ -457,7 +609,7 @@ export default function LightControlDashboard({
     if (!success && relaySupabase) {
       try {
         const rpcRes = await relaySupabase.rpc('set_light_channel', {
-          p_device_id: 'light_01',
+          p_device_id: targetDeviceId,
           p_channel: channel,
           p_state: nextState
         });
@@ -473,7 +625,7 @@ export default function LightControlDashboard({
 
     // Tier 3: Direct Native Browser REST fetch() fallback
     if (!success) {
-      const restRes = await sendDirectRestUpdate('light_01', { [`ch${channel}`]: nextState });
+      const restRes = await sendDirectRestUpdate(targetDeviceId, { [`ch${channel}`]: nextState });
       if (restRes.success) {
         success = true;
       } else {
@@ -483,7 +635,7 @@ export default function LightControlDashboard({
 
     // Tier 4: Direct Native Browser REST RPC fetch() fallback
     if (!success) {
-      const restRpcRes = await sendDirectRestRpc('light_01', channel, nextState);
+      const restRpcRes = await sendDirectRestRpc(targetDeviceId, channel, nextState);
       if (restRpcRes.success) {
         success = true;
       } else {
@@ -495,7 +647,7 @@ export default function LightControlDashboard({
 
     if (success) {
       setLastSyncedAt(new Date());
-      setSyncMessage(`Relay ${channel} switched to ${nextState ? 'ON' : 'OFF'} (Supabase synced)`);
+      setSyncMessage(`Relay ${channel} switched to ${nextState ? 'ON' : 'OFF'} (${targetDeviceId} synced)`);
       setTimeout(() => void fetchStatusRef.current?.(), 300);
     } else {
       pendingTogglesRef.current.delete(channel);
@@ -532,7 +684,7 @@ export default function LightControlDashboard({
         const { error } = await relaySupabase
           .from('light_control_status')
           .update(payload)
-          .eq('device_id', 'light_01');
+          .eq('device_id', targetDeviceId);
         if (!error) {
           success = true;
         } else {
@@ -549,7 +701,7 @@ export default function LightControlDashboard({
         let allOk = true;
         for (let ch = 1; ch <= relayChannels; ch++) {
           const rpcRes = await relaySupabase.rpc('set_light_channel', {
-            p_device_id: 'light_01',
+            p_device_id: targetDeviceId,
             p_channel: ch,
             p_state: targetState
           });
@@ -561,7 +713,7 @@ export default function LightControlDashboard({
 
     // Tier 3: Direct Native REST fetch() fallback
     if (!success) {
-      const restRes = await sendDirectRestUpdate('light_01', payload);
+      const restRes = await sendDirectRestUpdate(targetDeviceId, payload);
       if (restRes.success) {
         success = true;
       } else {
@@ -573,29 +725,30 @@ export default function LightControlDashboard({
 
     if (success) {
       setLastSyncedAt(new Date());
-      setSyncMessage(`Master command applied: All ${relayChannels} channels ${targetState ? 'ON' : 'OFF'}`);
+      setSyncMessage(`All ${relayChannels} lights switched ${targetState ? 'ON' : 'OFF'} (${targetDeviceId} synced)`);
       setTimeout(() => void fetchStatusRef.current?.(), 300);
     } else {
       for (let ch = 1; ch <= relayChannels; ch++) {
         pendingTogglesRef.current.delete(ch);
       }
-      setSyncError(`Master sync error: ${errorMsg || 'Connection error'}`);
+      setSyncError(`Master override failed: ${errorMsg || 'Connection error'}`);
     }
   };
 
   const saveLightName = (channel: number) => {
-    const nextName = nameDraft.trim() || `Light ${channel}`;
-    setLights(current =>
-      current.map(item => (item.channel === channel ? { ...item, name: nextName } : item))
-    );
+    if (!nameDraft.trim()) return;
     try {
-      window.localStorage.setItem(`gkb-light-name:${device.key}:${channel}`, nextName);
+      window.localStorage.setItem(`gkb-light-name:${device.key}:${channel}`, nameDraft.trim());
     } catch {}
+    setLights(current =>
+      current.map(item => (item.channel === channel ? { ...item, name: nameDraft.trim() } : item))
+    );
+    recordActivity(`Channel ${channel} renamed to "${nameDraft.trim()}"`);
     setEditingChannel(null);
-    recordActivity(`Renamed Relay ${channel} to "${nextName}"`);
   };
 
   const activeCount = lights.filter(l => l.isOn).length;
+  const activeGpios = Array.from({ length: relayChannels }, (_, i) => GPIO_MAP[i + 1] ?? 23);
 
   return (
     <section aria-labelledby="light-control-title" className="mx-auto max-w-5xl space-y-6">
@@ -606,7 +759,7 @@ export default function LightControlDashboard({
             <div className="flex items-center gap-2">
               <span className="flex h-2 w-2 rounded-full bg-amber-400 animate-pulse" />
               <p className="text-xs font-bold uppercase tracking-[0.2em] text-amber-300">
-                Multi-Channel Cloud Telemetry · Live public.light_control_status
+                Multi-Channel Cloud Telemetry · Live public.light_control_status ({targetDeviceId})
               </p>
             </div>
             <h2 id="light-control-title" className="mt-1 text-2xl font-black text-white sm:text-3xl">
@@ -618,7 +771,7 @@ export default function LightControlDashboard({
           </span>
         </div>
         <p className="mt-2 text-xs sm:text-sm text-slate-300 leading-relaxed max-w-3xl">
-          Standardized ESP32 multi-relay controller supporting independent cloud actuation, Web Bluetooth (BLE) provisioning, phone camera QR verification, and non-volatile flash credentials.
+          Standardized ESP32 multi-relay controller supporting independent cloud actuation ({relayChannels} channels), Web Bluetooth (BLE) provisioning, phone camera QR verification, and non-volatile flash credentials.
         </p>
       </header>
 
@@ -631,7 +784,7 @@ export default function LightControlDashboard({
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <span className="text-[10px] font-bold uppercase tracking-widest text-amber-400">Multi-Channel Relay</span>
+                <span className="text-[10px] font-bold uppercase tracking-widest text-amber-400">{relayChannels}-Channel Relay</span>
                 <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/10 px-2.5 py-0.5 text-[10px] font-mono font-bold text-amber-300 border border-amber-500/30">
                   Target: {device.key}
                 </span>
@@ -708,7 +861,7 @@ export default function LightControlDashboard({
             </div>
             <p className="text-xs font-bold text-white">NVS Credential Storage</p>
             <p className="text-[11px] text-slate-400 leading-relaxed">
-              Transfers local Wi-Fi. ESP32 commits to Preferences.h Flash and polls Supabase to switch {relayChannels} relays.
+              Transfers local Wi-Fi. ESP32 commits to Preferences.h Flash and polls Supabase ({targetDeviceId}) to switch {relayChannels} relays.
             </p>
           </div>
         </div>
@@ -717,7 +870,7 @@ export default function LightControlDashboard({
         <div className="flex flex-wrap items-center justify-between gap-3 pt-1 text-xs text-slate-400 border-t border-slate-800/60">
           <div className="flex flex-wrap items-center gap-4 font-mono text-[11px]">
             <span className="flex items-center gap-1.5 text-amber-300">
-              <Cpu className="h-3.5 w-3.5 text-amber-400" /> Relays 1-4: <strong className="text-white">GPIO 23, 22, 21, 19</strong>
+              <Cpu className="h-3.5 w-3.5 text-amber-400" /> Relays 1-{relayChannels}: <strong className="text-white">GPIO {activeGpios.join(', ')}</strong>
             </span>
             <span className="flex items-center gap-1.5 text-purple-300">
               <Radio className="h-3.5 w-3.5 text-purple-400" /> Status LED: <strong className="text-white">GPIO 2</strong>
@@ -727,7 +880,7 @@ export default function LightControlDashboard({
             </span>
           </div>
           <span className="text-[11px] text-slate-500">
-            Cloud Endpoint: <code className="text-slate-400 font-mono">public.light_control_status (light_01)</code>
+            Cloud Endpoint: <code className="text-slate-400 font-mono">public.light_control_status ({targetDeviceId})</code>
           </span>
         </div>
       </section>
@@ -746,7 +899,7 @@ export default function LightControlDashboard({
               </span>
             </div>
             <p className="text-xs text-slate-400 mt-0.5">
-              {lastSyncedAt ? `Last cloud sync: ${lastSyncedAt.toLocaleTimeString()}` : 'Connected to cloud relay telemetry'}
+              {lastSyncedAt ? `Last cloud sync: ${lastSyncedAt.toLocaleTimeString()} (${targetDeviceId})` : 'Connected to cloud relay telemetry'}
             </p>
           </div>
         </div>
@@ -801,7 +954,7 @@ export default function LightControlDashboard({
       )}
 
       {/* Interactive Relays / Lights Grid */}
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+      <div className={`grid gap-4 sm:grid-cols-2 ${relayChannels >= 6 ? 'xl:grid-cols-3' : 'xl:grid-cols-4'}`}>
         {lights.map(light => {
           const lightOn = light.isOn;
           const isEditing = editingChannel === light.channel;
