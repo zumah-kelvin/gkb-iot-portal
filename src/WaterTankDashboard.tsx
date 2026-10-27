@@ -566,7 +566,7 @@ export default function WaterTankDashboard({
   device
 }: {
   mode?: 'test' | 'service';
-  device: Device;
+  device?: Device;
 }) {
   const [waterLevel, setWaterLevel] = useState<number>(68);
   const [distanceCm, setDistanceCm] = useState<number>(32.0);
@@ -600,7 +600,7 @@ export default function WaterTankDashboard({
 
   const fetchStatusRef = useRef<(() => Promise<void>) | null>(null);
   const targetDeviceId = 'water_01';
-  const targetDeviceKey = device.key || 'GKB-SWP-0001';
+  const targetDeviceKey = device?.key || 'GKB-SWP-0001';
 
   const recordActivity = (event: string, type: TelemetryActivity['type'] = 'info') => {
     const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
