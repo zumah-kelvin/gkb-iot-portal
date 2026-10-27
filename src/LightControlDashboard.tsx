@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   Lightbulb, Pencil, Save, X, Activity, Wifi, Server,
   Bluetooth, QrCode, Printer, Code, Zap, Check, Copy,
@@ -142,8 +142,8 @@ void pollCloud() {
       applyOutput(PIN_RELAY_CH4, ch4_state);
     }
     http.end();
-    client.stop();
   }
+  client.stop();
 }
 
 void setup() {
@@ -203,8 +203,14 @@ export default function LightControlDashboard({
   const [showFirmwareModal, setShowFirmwareModal] = useState(false);
   const [copiedFirmware, setCopiedFirmware] = useState(false);
   const [syncMessage, setSyncMessage] = useState('');
+  const [syncError, setSyncError] = useState('');
   const [lastSyncedAt, setLastSyncedAt] = useState<Date | null>(null);
   const [isSyncing, setIsSyncing] = useState(false);
+
+  // Anti-snapback lock map: channel -> { target: boolean, expiresAt: number }
+  // Keeps optimistic toggle ON while the asynchronous network write is in flight
+  const pendingTogglesRef = useRef<Map<number, { target: boolean; expiresAt: number }>>(new Map());
+  const fetchStatusRef = useRef<(() => Promise<void>) | null>(null);
 
   // Channels state
   const [lights, setLights] = useState<ControlledLight[]>(() => {
@@ -235,7 +241,7 @@ export default function LightControlDashboard({
     }
   ]);
 
-  // Poll Supabase light_control_status every 2.5s
+  // Poll Supabase light_control_status every 2.5s with optimistic lock protection
   useEffect(() => {
     if (mode !== 'service' || !relaySupabase) return;
 
@@ -251,10 +257,30 @@ export default function LightControlDashboard({
         if (disposed) return;
         if (!error && data) {
           setLastSyncedAt(new Date());
+          const now = Date.now();
           setLights(current =>
             current.map(light => {
               const cloudVal = (data as Record<string, unknown>)[`ch${light.channel}`];
-              return typeof cloudVal === 'boolean' ? { ...light, isOn: cloudVal } : light;
+              if (typeof cloudVal !== 'boolean') return light;
+
+              // Check if user recently interacted with this channel
+              const pending = pendingTogglesRef.current.get(light.channel);
+              if (pending) {
+                if (cloudVal === pending.target) {
+                  // Cloud DB successfully synced with user's desired state! Release lock
+                  pendingTogglesRef.current.delete(light.channel);
+                  return { ...light, isOn: cloudVal };
+                } else if (now < pending.expiresAt) {
+                  // Grace period active: preserve optimistic toggle state, do NOT snap back!
+                  return { ...light, isOn: pending.target };
+                } else {
+                  // Grace period expired (command timed out) -> sync back to real cloud state
+                  pendingTogglesRef.current.delete(light.channel);
+                  return { ...light, isOn: cloudVal };
+                }
+              }
+
+              return { ...light, isOn: cloudVal };
             })
           );
         }
@@ -263,10 +289,12 @@ export default function LightControlDashboard({
       }
     };
 
+    fetchStatusRef.current = fetchStatus;
     void fetchStatus();
     const intervalId = window.setInterval(() => void fetchStatus(), 2500);
     return () => {
       disposed = true;
+      fetchStatusRef.current = null;
       window.clearInterval(intervalId);
     };
   }, [mode, device.key]);
@@ -287,30 +315,64 @@ export default function LightControlDashboard({
     if (!light) return;
     const nextState = !light.isOn;
 
-    // Snappy optimistic UI update
+    // 1. Lock channel with a 7-second grace window to protect optimistic state
+    pendingTogglesRef.current.set(channel, {
+      target: nextState,
+      expiresAt: Date.now() + 7000
+    });
+
+    // 2. Snappy optimistic UI update
     setLights(current =>
       current.map(item => (item.channel === channel ? { ...item, isOn: nextState } : item))
     );
+    setSyncError('');
     recordActivity(`${light.name} (GPIO ${light.gpio}) switched ${nextState ? 'ON' : 'OFF'}`);
 
     if (relaySupabase) {
       setIsSyncing(true);
       try {
-        const { error } = await relaySupabase
+        // Direct column UPDATE on the targeted channel
+        let { error } = await relaySupabase
           .from('light_control_status')
           .update({
             [`ch${channel}`]: nextState
           })
           .eq('device_id', 'light_01');
+
+        // Automatic fallback to hardened RPC if direct UPDATE fails
+        if (error) {
+          console.warn('Direct column update encountered an issue, trying RPC fallback:', error);
+          const rpcRes = await relaySupabase.rpc('set_light_channel', {
+            p_device_id: 'light_01',
+            p_channel: channel,
+            p_state: nextState
+          });
+          if (!rpcRes.error) {
+            error = null;
+          } else {
+            console.warn('RPC fallback also failed:', rpcRes.error);
+          }
+        }
+
         if (error) {
           console.warn('Could not sync to Supabase light_control_status:', error);
-          setSyncMessage(`Sync error: ${error.message}`);
+          pendingTogglesRef.current.delete(channel);
+          setLights(current =>
+            current.map(item => (item.channel === channel ? { ...item, isOn: !nextState } : item))
+          );
+          setSyncError(`Sync error on Relay ${channel}: ${error.message}`);
         } else {
           setLastSyncedAt(new Date());
           setSyncMessage(`Relay ${channel} switched to ${nextState ? 'ON' : 'OFF'}`);
+          setTimeout(() => void fetchStatusRef.current?.(), 300);
         }
-      } catch (error) {
-        console.warn('Could not sync to Supabase light_control_status:', error);
+      } catch (err) {
+        console.warn('Could not sync to Supabase light_control_status:', err);
+        pendingTogglesRef.current.delete(channel);
+        setLights(current =>
+          current.map(item => (item.channel === channel ? { ...item, isOn: !nextState } : item))
+        );
+        setSyncError(`Network error while syncing Relay ${channel}.`);
       } finally {
         setIsSyncing(false);
       }
@@ -318,7 +380,13 @@ export default function LightControlDashboard({
   };
 
   const handleMasterAll = async (targetState: boolean) => {
+    const expiresAt = Date.now() + 7000;
+    for (let ch = 1; ch <= relayChannels; ch++) {
+      pendingTogglesRef.current.set(ch, { target: targetState, expiresAt });
+    }
+
     setLights(current => current.map(item => ({ ...item, isOn: targetState })));
+    setSyncError('');
     recordActivity(`Master Override: Switched ALL ${relayChannels} lights ${targetState ? 'ON' : 'OFF'}`);
 
     if (relaySupabase) {
@@ -328,19 +396,42 @@ export default function LightControlDashboard({
         for (let i = 1; i <= relayChannels; i++) {
           payload[`ch${i}`] = targetState;
         }
-        const { error } = await relaySupabase
+        let { error } = await relaySupabase
           .from('light_control_status')
           .update(payload)
           .eq('device_id', 'light_01');
+
+        if (error) {
+          console.warn('Master update encountered an issue, attempting RPC fallback for each channel:', error);
+          let allOk = true;
+          for (let ch = 1; ch <= relayChannels; ch++) {
+            const rpcRes = await relaySupabase.rpc('set_light_channel', {
+              p_device_id: 'light_01',
+              p_channel: ch,
+              p_state: targetState
+            });
+            if (rpcRes.error) allOk = false;
+          }
+          if (allOk) error = null;
+        }
+
         if (error) {
           console.warn('Could not update all channels in Supabase:', error);
-          setSyncMessage(`Master sync error: ${error.message}`);
+          for (let ch = 1; ch <= relayChannels; ch++) {
+            pendingTogglesRef.current.delete(ch);
+          }
+          setSyncError(`Master sync error: ${error.message}`);
         } else {
           setLastSyncedAt(new Date());
           setSyncMessage(`Master command applied: All ${relayChannels} channels ${targetState ? 'ON' : 'OFF'}`);
+          setTimeout(() => void fetchStatusRef.current?.(), 300);
         }
-      } catch (error) {
-        console.warn('Could not update all channels in Supabase:', error);
+      } catch (err) {
+        console.warn('Could not update all channels in Supabase:', err);
+        for (let ch = 1; ch <= relayChannels; ch++) {
+          pendingTogglesRef.current.delete(ch);
+        }
+        setSyncError('Network error while issuing Master command.');
       } finally {
         setIsSyncing(false);
       }
@@ -532,6 +623,22 @@ export default function LightControlDashboard({
           </button>
         </div>
       </div>
+
+      {syncError && (
+        <div role="alert" className="flex items-center justify-between rounded-xl border border-rose-500/40 bg-rose-500/10 p-3 text-xs text-rose-300 font-semibold animate-fadeIn">
+          <div className="flex items-center gap-2">
+            <AlertTriangle className="h-4 w-4 text-rose-400 shrink-0" />
+            <span>{syncError}</span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setSyncError('')}
+            className="rounded p-1 text-rose-400 hover:text-white"
+          >
+            <X className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      )}
 
       {syncMessage && (
         <p role="status" className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-2.5 text-center text-xs text-emerald-300 font-semibold animate-fadeIn">
