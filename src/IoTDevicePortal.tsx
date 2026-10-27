@@ -57,7 +57,7 @@ const defaultDevices: Device[] = [
     id: 2,
     name: 'Smart Light Control System v1 · 4-Channel Relay',
     key: 'GKB-LIGHT-0001V1',
-    legacyKeys: ['GKB-LIGHTV1-0001', 'GKB-LIGHT-0001'],
+    legacyKeys: ['GKB-LIGHTV1-0001', 'GKB-LIGHT-0001', 'GKB-RELAY-0001'],
     status: 'Active Target',
     lastAlert: '4-Relay Channel Board · BLE & QR Ready · GPIO 23, 22, 21, 19',
     project: 'light-control',
