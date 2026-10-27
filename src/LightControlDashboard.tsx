@@ -292,15 +292,19 @@ export default function LightControlDashboard({
     if (relaySupabase) {
       setIsSyncing(true);
       try {
-        await relaySupabase
+        const { error } = await relaySupabase
           .from('light_control_status')
           .update({
-            [`ch${channel}`]: nextState,
-            updated_at: new Date().toISOString()
+            [`ch${channel}`]: nextState
           })
           .eq('device_id', 'light_01');
-        setLastSyncedAt(new Date());
-        setSyncMessage(`Relay ${channel} switched to ${nextState ? 'ON' : 'OFF'}`);
+        if (error) {
+          console.warn('Could not sync to Supabase light_control_status:', error);
+          setSyncMessage(`Sync error: ${error.message}`);
+        } else {
+          setLastSyncedAt(new Date());
+          setSyncMessage(`Relay ${channel} switched to ${nextState ? 'ON' : 'OFF'}`);
+        }
       } catch (error) {
         console.warn('Could not sync to Supabase light_control_status:', error);
       } finally {
@@ -316,16 +320,21 @@ export default function LightControlDashboard({
     if (relaySupabase) {
       setIsSyncing(true);
       try {
-        const payload: Record<string, boolean | string> = { updated_at: new Date().toISOString() };
+        const payload: Record<string, boolean> = {};
         for (let i = 1; i <= relayChannels; i++) {
           payload[`ch${i}`] = targetState;
         }
-        await relaySupabase
+        const { error } = await relaySupabase
           .from('light_control_status')
           .update(payload)
           .eq('device_id', 'light_01');
-        setLastSyncedAt(new Date());
-        setSyncMessage(`Master command applied: All ${relayChannels} channels ${targetState ? 'ON' : 'OFF'}`);
+        if (error) {
+          console.warn('Could not update all channels in Supabase:', error);
+          setSyncMessage(`Master sync error: ${error.message}`);
+        } else {
+          setLastSyncedAt(new Date());
+          setSyncMessage(`Master command applied: All ${relayChannels} channels ${targetState ? 'ON' : 'OFF'}`);
+        }
       } catch (error) {
         console.warn('Could not update all channels in Supabase:', error);
       } finally {
