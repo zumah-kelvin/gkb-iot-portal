@@ -474,6 +474,77 @@ export default function SmartSecurityDashboard({
   const [statusMessage, setStatusMessage] = useState('');
   const [audioNeedsInteraction, setAudioNeedsInteraction] = useState(false);
 
+  // Motion Notification Popup & Browser Notification State
+  const [motionPopup, setMotionPopup] = useState<{
+    visible: boolean;
+    timestamp: string;
+    zone: string;
+    pin: string;
+    secondsAgo: number;
+  } | null>(null);
+
+  const [notificationPermission, setNotificationPermission] = useState<NotificationPermission>(() => {
+    if (typeof window !== 'undefined' && 'Notification' in window) {
+      return Notification.permission;
+    }
+    return 'default';
+  });
+
+  const prevMotionRef = useRef<boolean>(false);
+
+  // Request browser desktop / phone notification permission
+  const requestNotificationPermission = async () => {
+    if (typeof window !== 'undefined' && 'Notification' in window) {
+      try {
+        const perm = await Notification.requestPermission();
+        setNotificationPermission(perm);
+        if (perm === 'granted') {
+          new Notification('🛡️ GKB Security Notifications Enabled', {
+            body: 'You will receive immediate popups when motion is detected!',
+            icon: '/favicon.ico'
+          });
+        }
+      } catch (err) {
+        console.warn('Notification permission error:', err);
+      }
+    }
+  };
+
+  // Trigger popup notification modal & desktop notification
+  const triggerMotionPopup = useCallback((zoneName: string = 'Living Room PIR #01', pin: string = 'GPIO 15') => {
+    const timeStr = new Date().toLocaleTimeString();
+    setMotionPopup({
+      visible: true,
+      timestamp: timeStr,
+      zone: zoneName,
+      pin: pin,
+      secondsAgo: 0
+    });
+
+    // Native Desktop / Phone OS Notification
+    if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted') {
+      try {
+        new Notification('🚨 GKB Security: Motion Detected!', {
+          body: `Motion detected in ${zoneName} (${pin})! Status: ${armedMode.toUpperCase()}`,
+          icon: '/favicon.ico',
+          tag: 'gkb-security-motion-' + Date.now(),
+          requireInteraction: true
+        });
+      } catch (e) {
+        console.warn('Desktop notification error:', e);
+      }
+    }
+  }, [armedMode]);
+
+  // Elapsed seconds timer on active popup
+  useEffect(() => {
+    if (!motionPopup?.visible) return;
+    const timer = setInterval(() => {
+      setMotionPopup(prev => prev ? { ...prev, secondsAgo: prev.secondsAgo + 1 } : null);
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [motionPopup?.visible]);
+
   // Modals
   const [provisionModalOpen, setProvisionModalOpen] = useState(false);
   const [showFirmwareModal, setShowFirmwareModal] = useState(false);
@@ -661,7 +732,12 @@ export default function SmartSecurityDashboard({
         const row = data[0];
         setArmedMode(row.armed_mode || 'away');
         setAlarmState(row.alarm_state || 'IDLE');
-        setMotionDetected(Boolean(row.motion_detected));
+        const isNowMotion = Boolean(row.motion_detected);
+        if (isNowMotion && !prevMotionRef.current) {
+          triggerMotionPopup('Living Room PIR #01', 'GPIO 15');
+        }
+        prevMotionRef.current = isNowMotion;
+        setMotionDetected(isNowMotion);
         setSirenActive(Boolean(row.siren_active));
         setBuzzerActive(Boolean(row.buzzer_active));
         setSoundMuted(Boolean(row.sound_muted));
@@ -670,8 +746,8 @@ export default function SmartSecurityDashboard({
         // Update zone 1 status according to motion_detected
         setZones(prev => prev.map(z => z.id === 'zone-1' ? {
           ...z,
-          status: row.motion_detected ? 'triggered' : 'secure',
-          lastTripped: row.motion_detected ? 'Just now' : z.lastTripped
+          status: isNowMotion ? 'triggered' : 'secure',
+          lastTripped: isNowMotion ? 'Just now' : z.lastTripped
         } : z));
 
         setConnectionState('connected');
@@ -680,7 +756,7 @@ export default function SmartSecurityDashboard({
     } catch (err) {
       setConnectionState('error');
     }
-  }, []);
+  }, [triggerMotionPopup]);
 
   useEffect(() => {
     fetchSecurityStatus();
@@ -695,7 +771,12 @@ export default function SmartSecurityDashboard({
             const row: any = payload.new;
             setArmedMode(row.armed_mode || 'away');
             setAlarmState(row.alarm_state || 'IDLE');
-            setMotionDetected(Boolean(row.motion_detected));
+            const isNowMotion = Boolean(row.motion_detected);
+            if (isNowMotion && !prevMotionRef.current) {
+              triggerMotionPopup('Living Room PIR #01', 'GPIO 15');
+            }
+            prevMotionRef.current = isNowMotion;
+            setMotionDetected(isNowMotion);
             setSirenActive(Boolean(row.siren_active));
             setBuzzerActive(Boolean(row.buzzer_active));
             setSoundMuted(Boolean(row.sound_muted));
@@ -780,6 +861,7 @@ export default function SmartSecurityDashboard({
     setSirenActive(true);
     setBuzzerActive(true);
     setMotionDetected(true);
+    triggerMotionPopup('Remote Panic Button', 'Manual Override');
     setZones(prev => prev.map(z => z.id === 'zone-1' ? { ...z, status: 'triggered', lastTripped: 'Just now' } : z));
     setAlerts(prev => [{
       id: `${Date.now()}`,
@@ -802,6 +884,7 @@ export default function SmartSecurityDashboard({
   const handleTestMotionTrip = () => {
     ensureAudioContext();
     setMotionDetected(true);
+    triggerMotionPopup('Living Room PIR #01', 'GPIO 15');
     if (armedMode !== 'disarmed') {
       setAlarmState('TRIPPED');
       setSirenActive(true);
@@ -863,6 +946,89 @@ export default function SmartSecurityDashboard({
         }
       `}</style>
 
+      {/* ================= FLOATING INTRUSION NOTIFICATION POPUP ================= */}
+      {motionPopup?.visible && (
+        <div
+          role="alert"
+          aria-live="assertive"
+          className="fixed top-5 right-4 sm:right-6 z-[100] max-w-md w-full animate-fadeIn"
+        >
+          <div className="relative overflow-hidden rounded-2xl border-2 border-red-500 bg-slate-950/95 p-4 sm:p-5 shadow-[0_0_55px_rgba(239,68,68,0.7)] backdrop-blur-xl">
+            {/* Pulsing indicator bar */}
+            <div className="absolute top-0 left-0 right-0 h-1.5 bg-gradient-to-r from-red-600 via-amber-400 to-red-600 animate-pulse" />
+
+            <div className="flex items-start gap-3.5">
+              <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-red-600 text-white shadow-lg shadow-red-600/70 gkb-siren-strobe">
+                <Siren className="h-6 w-6" />
+              </div>
+
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="inline-flex items-center gap-1 rounded-full border border-red-500/50 bg-red-500/20 px-2.5 py-0.5 text-[10px] font-black uppercase tracking-wider text-red-300">
+                    <span className="h-1.5 w-1.5 rounded-full bg-red-400 animate-ping" />
+                    Intrusion Alert
+                  </span>
+                  <span className="text-[10px] font-mono text-slate-400">
+                    {motionPopup.timestamp}
+                  </span>
+                </div>
+
+                <h4 className="mt-1 text-sm font-black text-white uppercase tracking-wide truncate">
+                  Motion Detected: {motionPopup.zone}
+                </h4>
+
+                <p className="mt-0.5 text-xs text-slate-300 leading-relaxed">
+                  Infrared motion sensed on <strong className="text-red-400">{motionPopup.pin}</strong>. System status: <strong className="text-white">{armedMode.toUpperCase()}</strong>.
+                </p>
+
+                {motionPopup.secondsAgo > 0 && (
+                  <p className="text-[10px] text-amber-400 mt-1 flex items-center gap-1 font-mono">
+                    <Activity className="h-3 w-3" /> Active alert · Tripped {motionPopup.secondsAgo}s ago
+                  </p>
+                )}
+
+                {/* Popup Action Buttons */}
+                <div className="mt-3.5 flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={handleClearAlarm}
+                    className="inline-flex items-center gap-1 rounded-xl bg-red-600 px-3.5 py-1.5 text-xs font-bold text-white hover:bg-red-500 transition-all cursor-pointer shadow-md shadow-red-600/30"
+                  >
+                    <CheckCircle2 className="h-3.5 w-3.5" /> Clear Alarm
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={toggleSoundMute}
+                    className="inline-flex items-center gap-1 rounded-xl border border-slate-700 bg-slate-800 px-3 py-1.5 text-xs font-semibold text-slate-300 hover:text-white transition-all cursor-pointer"
+                  >
+                    {soundMuted ? <Volume2 className="h-3.5 w-3.5" /> : <VolumeX className="h-3.5 w-3.5" />}
+                    {soundMuted ? 'Unmute' : 'Silence'}
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setMotionPopup(prev => prev ? { ...prev, visible: false } : null)}
+                    className="inline-flex items-center gap-1 rounded-xl border border-slate-800 bg-slate-900/80 px-2.5 py-1.5 text-xs text-slate-400 hover:text-white transition-all cursor-pointer ml-auto"
+                  >
+                    <X className="h-3.5 w-3.5" /> Dismiss
+                  </button>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setMotionPopup(prev => prev ? { ...prev, visible: false } : null)}
+                className="text-slate-400 hover:text-white p-1 rounded-lg transition-colors cursor-pointer"
+                aria-label="Close notification"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Top Header Badge & Navigation */}
       <header className="flex flex-col gap-4 rounded-2xl border border-white/10 bg-slate-950/70 p-4 sm:flex-row sm:items-center sm:justify-between sm:p-5 shadow-inner">
         <div>
@@ -891,6 +1057,21 @@ export default function SmartSecurityDashboard({
 
         {/* Quick Actions & Indicators */}
         <div className="flex flex-wrap items-center gap-2">
+          {/* Desktop Push / Popup Notifications Toggle */}
+          <button
+            type="button"
+            onClick={requestNotificationPermission}
+            title={notificationPermission === 'granted' ? 'Desktop alerts active' : 'Click to enable desktop popups'}
+            className={`inline-flex items-center gap-1.5 rounded-xl border px-3 py-2 text-xs font-bold transition-all cursor-pointer ${
+              notificationPermission === 'granted'
+                ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-300 hover:bg-emerald-500/20'
+                : 'border-amber-500/40 bg-amber-500/10 text-amber-300 hover:bg-amber-500/20 animate-pulse'
+            }`}
+          >
+            {notificationPermission === 'granted' ? <Bell className="h-4 w-4" /> : <BellOff className="h-4 w-4" />}
+            <span>{notificationPermission === 'granted' ? 'Popups Enabled' : 'Enable Popups'}</span>
+          </button>
+
           <button
             type="button"
             onClick={toggleSoundMute}
