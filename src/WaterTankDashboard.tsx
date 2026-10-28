@@ -343,6 +343,17 @@ void pollAndSyncCloud() {
           applyBuzzerOutput(false);
         }
       }
+
+      int heightIdx = payload.indexOf("\\"tank_height_cm\\":");
+      if (heightIdx != -1) {
+        float parsedHeight = payload.substring(heightIdx + 17).toFloat();
+        if (parsedHeight >= 30.0 && parsedHeight <= 1000.0) tankHeightCm = parsedHeight;
+      }
+      int minIdx = payload.indexOf("\\"min_distance_cm\\":");
+      if (minIdx != -1) {
+        float parsedMin = payload.substring(minIdx + 18).toFloat();
+        if (parsedMin >= 15.0 && parsedMin <= 100.0) minDistanceCm = parsedMin;
+      }
     }
     http.end();
   }
