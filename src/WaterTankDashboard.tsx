@@ -4,8 +4,8 @@ import {
   Code, Zap, Check, Copy, AlertTriangle, Cpu, Radio, Key, Power,
   RefreshCw, Sliders, Settings, Volume2, VolumeX, Database,
   Waves, ArrowUpRight, Info, Play, Square, Gauge, ShieldAlert,
-  ChevronDown, ChevronUp, Save, X, Ruler, Maximize2, Box, Circle,
-  Calculator, Sparkles, Edit3
+  ChevronDown, ChevronUp, Save, X, Ruler, CircleDot, Calculator,
+  Compass, Sparkles, CheckCircle2
 } from 'lucide-react';
 import { relaySupabase } from './supabase';
 import BleProvisioningModal from './BleProvisioningModal';
@@ -42,9 +42,7 @@ CREATE TABLE IF NOT EXISTS public.water_tank_status (
   water_level INTEGER NOT NULL DEFAULT 68,
   distance_cm NUMERIC(6,2) NOT NULL DEFAULT 32.00,
   tank_height_cm NUMERIC(6,2) NOT NULL DEFAULT 100.00,
-  tank_width_cm NUMERIC(6,2) NOT NULL DEFAULT 100.00,
-  tank_length_cm NUMERIC(6,2) NOT NULL DEFAULT 100.00,
-  tank_shape TEXT NOT NULL DEFAULT 'CYLINDRICAL',
+  tank_circumference_cm NUMERIC(6,2) NOT NULL DEFAULT 314.16,
   min_distance_cm NUMERIC(6,2) NOT NULL DEFAULT 20.00,
   pump_state TEXT NOT NULL DEFAULT 'OFF' CHECK (pump_state IN ('ON', 'OFF')),
   pump_mode TEXT NOT NULL DEFAULT 'AUTO' CHECK (pump_mode IN ('AUTO', 'MANUAL')),
@@ -56,20 +54,16 @@ CREATE TABLE IF NOT EXISTS public.water_tank_status (
   updated_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now())
 );
 
-ALTER TABLE public.water_tank_status ADD COLUMN IF NOT EXISTS tank_width_cm NUMERIC(6,2) DEFAULT 100.00;
-ALTER TABLE public.water_tank_status ADD COLUMN IF NOT EXISTS tank_length_cm NUMERIC(6,2) DEFAULT 100.00;
-ALTER TABLE public.water_tank_status ADD COLUMN IF NOT EXISTS tank_shape TEXT DEFAULT 'CYLINDRICAL';
+ALTER TABLE public.water_tank_status ADD COLUMN IF NOT EXISTS tank_circumference_cm NUMERIC(6,2) DEFAULT 314.16;
 
 INSERT INTO public.water_tank_status (
   device_id, device_key, water_level, distance_cm, tank_height_cm,
-  tank_width_cm, tank_length_cm, tank_shape,
-  min_distance_cm, pump_state, pump_mode, low_threshold, full_threshold,
-  buzzer_active, tank_capacity_liters
+  tank_circumference_cm, min_distance_cm, pump_state, pump_mode,
+  low_threshold, full_threshold, buzzer_active, tank_capacity_liters
 )
 VALUES (
   'water_01', 'GKB-SWP-0001', 68, 32.00, 100.00,
-  100.00, 100.00, 'CYLINDRICAL',
-  20.00, 'OFF', 'AUTO', 30, 90, false, 5000
+  314.16, 20.00, 'OFF', 'AUTO', 30, 90, false, 5000
 )
 ON CONFLICT (device_id) DO NOTHING;
 
@@ -343,17 +337,6 @@ void pollAndSyncCloud() {
           applyBuzzerOutput(false);
         }
       }
-
-      int heightIdx = payload.indexOf("\\"tank_height_cm\\":");
-      if (heightIdx != -1) {
-        float parsedHeight = payload.substring(heightIdx + 17).toFloat();
-        if (parsedHeight >= 30.0 && parsedHeight <= 1000.0) tankHeightCm = parsedHeight;
-      }
-      int minIdx = payload.indexOf("\\"min_distance_cm\\":");
-      if (minIdx != -1) {
-        float parsedMin = payload.substring(minIdx + 18).toFloat();
-        if (parsedMin >= 15.0 && parsedMin <= 100.0) minDistanceCm = parsedMin;
-      }
     }
     http.end();
   }
@@ -591,47 +574,17 @@ export default function WaterTankDashboard({
 }) {
   const [waterLevel, setWaterLevel] = useState<number>(68);
   const [distanceCm, setDistanceCm] = useState<number>(32.0);
-  const [tankHeightCm, setTankHeightCm] = useState<number>(100.0); // Total Depth / Height (cm)
-  const [tankWidthCm, setTankWidthCm] = useState<number>(100.0);   // Width / Diameter (cm)
-  const [tankLengthCm, setTankLengthCm] = useState<number>(100.0); // Length for Rectangular tank (cm)
-  const [tankShape, setTankShape] = useState<'CYLINDRICAL' | 'RECTANGULAR'>('CYLINDRICAL');
-  const [dimensionUnit, setDimensionUnit] = useState<'cm' | 'm'>('cm');
+  const [tankHeightCm, setTankHeightCm] = useState<number>(100.0);
+  const [tankCircumferenceCm, setTankCircumferenceCm] = useState<number>(314.16);
   const [minDistanceCm, setMinDistanceCm] = useState<number>(20.0);
   const [tankCapacityLiters, setTankCapacityLiters] = useState<number>(5000);
+  const [autoCalcCapacity, setAutoCalcCapacity] = useState<boolean>(true);
   const [pumpState, setPumpState] = useState<'ON' | 'OFF'>('OFF');
   const [pumpMode, setPumpMode] = useState<'AUTO' | 'MANUAL'>('AUTO');
   const [lowThreshold, setLowThreshold] = useState<number>(30);
   const [fullThreshold, setFullThreshold] = useState<number>(90);
   const [buzzerActive, setBuzzerActive] = useState<boolean>(false);
   const [lastSyncedAt, setLastSyncedAt] = useState<Date | null>(null);
-
-  // Standard Water Tank Dimensions Presets
-  const TANK_PRESETS = [
-    { label: '500 L Slim', depth: 95, width: 85, capacity: 500, shape: 'CYLINDRICAL' as const },
-    { label: '1,000 L Poly', depth: 125, width: 105, capacity: 1000, shape: 'CYLINDRICAL' as const },
-    { label: '2,000 L Home', depth: 160, width: 130, capacity: 2000, shape: 'CYLINDRICAL' as const },
-    { label: '5,000 L Commercial', depth: 210, width: 180, capacity: 5000, shape: 'CYLINDRICAL' as const },
-    { label: '10,000 L Industrial', depth: 260, width: 225, capacity: 10000, shape: 'CYLINDRICAL' as const },
-    { label: '1,000 L IBC Tote', depth: 100, width: 100, length: 120, capacity: 1000, shape: 'RECTANGULAR' as const },
-  ];
-
-  // Geometric volume computation from user-input depth & width
-  const getGeometricCapacityLiters = (
-    depth: number,
-    width: number,
-    shape: 'CYLINDRICAL' | 'RECTANGULAR',
-    length: number = width
-  ) => {
-    if (depth <= 0 || width <= 0) return 0;
-    if (shape === 'CYLINDRICAL') {
-      const radius = width / 2;
-      return Math.round((Math.PI * radius * radius * depth) / 1000);
-    } else {
-      return Math.round((width * (length || width) * depth) / 1000);
-    }
-  };
-
-  const calculatedVolumeLiters = getGeometricCapacityLiters(tankHeightCm, tankWidthCm, tankShape, tankLengthCm);
 
   // Status & Lock States
   const [isUpdating, setIsUpdating] = useState<boolean>(false);
@@ -645,6 +598,7 @@ export default function WaterTankDashboard({
   const [firmwareModalOpen, setFirmwareModalOpen] = useState<boolean>(false);
   const [sqlModalOpen, setSqlModalOpen] = useState<boolean>(false);
   const [settingsOpen, setSettingsOpen] = useState<boolean>(false);
+  const [dimensionModalOpen, setDimensionModalOpen] = useState<boolean>(false);
 
   // Copy Feedback
   const [copiedFirmware, setCopiedFirmware] = useState<boolean>(false);
@@ -723,11 +677,7 @@ export default function WaterTankDashboard({
         if (typeof rowData.water_level === 'number') setWaterLevel(rowData.water_level);
         if (typeof rowData.distance_cm === 'number') setDistanceCm(rowData.distance_cm);
         if (typeof rowData.tank_height_cm === 'number') setTankHeightCm(rowData.tank_height_cm);
-        if (typeof rowData.tank_width_cm === 'number') setTankWidthCm(rowData.tank_width_cm);
-        if (typeof rowData.tank_length_cm === 'number') setTankLengthCm(rowData.tank_length_cm);
-        if (rowData.tank_shape === 'CYLINDRICAL' || rowData.tank_shape === 'RECTANGULAR') {
-          setTankShape(rowData.tank_shape);
-        }
+        if (typeof rowData.tank_circumference_cm === 'number') setTankCircumferenceCm(rowData.tank_circumference_cm);
         if (typeof rowData.min_distance_cm === 'number') setMinDistanceCm(rowData.min_distance_cm);
         if (typeof rowData.tank_capacity_liters === 'number') setTankCapacityLiters(rowData.tank_capacity_liters);
         if (rowData.pump_state === 'ON' || rowData.pump_state === 'OFF') setPumpState(rowData.pump_state);
@@ -814,8 +764,10 @@ export default function WaterTankDashboard({
   // Handle Thresholds & Geometry Save
   const handleSaveSettings = async () => {
     setIsUpdating(true);
-    setSyncMessage('💾 Transmitting depth, width & calibration to ESP32 cloud...');
-    recordActivity(`Saved dimensions: Depth ${tankHeightCm}cm, Width ${tankWidthCm}cm (${tankShape}), Capacity ${tankCapacityLiters}L`, 'info');
+    setSyncMessage('💾 Transmitting calibration parameters to ESP32...');
+    recordActivity(`Updated calibration: Low ${lowThreshold}%, Full ${fullThreshold}%, Depth ${tankHeightCm}cm, Circ ${tankCircumferenceCm}cm`, 'info');
+
+    const effectiveCap = autoCalcCapacity ? computedVolumeLiters : tankCapacityLiters;
 
     try {
       if (!dbMissingTable) {
@@ -830,18 +782,56 @@ export default function WaterTankDashboard({
             low_threshold: lowThreshold,
             full_threshold: fullThreshold,
             tank_height_cm: tankHeightCm,
-            tank_width_cm: tankWidthCm,
-            tank_length_cm: tankLengthCm,
-            tank_shape: tankShape,
+            tank_circumference_cm: tankCircumferenceCm,
             min_distance_cm: minDistanceCm,
-            tank_capacity_liters: tankCapacityLiters
+            tank_capacity_liters: effectiveCap
           })
         });
       }
-      setSyncMessage('✅ Tank dimensions & calibration saved to cloud');
+      setSyncMessage('✅ Tank calibration & dimensions saved to cloud');
       setSettingsOpen(false);
+      setDimensionModalOpen(false);
     } catch {
       setSyncMessage('⚠️ Calibration saved locally');
+    } finally {
+      setIsUpdating(false);
+      setTimeout(() => setSyncMessage(''), 3000);
+    }
+  };
+
+  // Dedicated manual dimension quick save
+  const handleSaveDimensions = async (customH?: number, customC?: number) => {
+    const targetH = customH !== undefined ? customH : tankHeightCm;
+    const targetC = customC !== undefined ? customC : tankCircumferenceCm;
+
+    const targetRadius = targetC / (2 * Math.PI);
+    const targetVol = Math.max(10, Math.round((Math.PI * Math.pow(targetRadius, 2) * targetH) / 1000));
+    const targetCap = autoCalcCapacity ? targetVol : tankCapacityLiters;
+
+    setIsUpdating(true);
+    setSyncMessage(`📐 Transmitting Depth (${targetH} cm) & Circumference (${targetC} cm) to ESP32...`);
+    recordActivity(`Saved Tank Dimensions: Depth ${targetH} cm, Circumference ${targetC} cm, Capacity ${targetCap} L`, 'info');
+
+    try {
+      if (!dbMissingTable) {
+        await fetch(`${HARDCODED_SUPABASE_URL}/rest/v1/water_tank_status?device_id=eq.${targetDeviceId}`, {
+          method: 'PATCH',
+          headers: {
+            'apikey': HARDCODED_SUPABASE_KEY,
+            'Authorization': `Bearer ${HARDCODED_SUPABASE_KEY}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            tank_height_cm: targetH,
+            tank_circumference_cm: targetC,
+            tank_capacity_liters: targetCap
+          })
+        });
+      }
+      setSyncMessage(`✅ Dimensions saved to cloud (${targetH} cm depth, ${targetC} cm circ)`);
+      setDimensionModalOpen(false);
+    } catch {
+      setSyncMessage('⚠️ Dimensions saved locally');
     } finally {
       setIsUpdating(false);
       setTimeout(() => setSyncMessage(''), 3000);
@@ -870,9 +860,22 @@ export default function WaterTankDashboard({
     }
   };
 
-  // Computed values
-  const currentVolumeLiters = Math.round((waterLevel / 100) * tankCapacityLiters);
-  const waterDepthCm = Math.max(0, tankHeightCm - distanceCm);
+  // Computed values from Tank Depth (H) and Circumference (C)
+  // Circumference C = π * D => Diameter D = C / π, Radius r = C / (2π)
+  // Cross-sectional Area A = π * r² = C² / (4π) [in cm²]
+  // Volume V = (A * H) / 1000 [in Liters, since 1000 cm³ = 1 L]
+  const tankRadiusCm = tankCircumferenceCm > 0 ? Number((tankCircumferenceCm / (2 * Math.PI)).toFixed(2)) : 0;
+  const tankDiameterCm = tankCircumferenceCm > 0 ? Number((tankCircumferenceCm / Math.PI).toFixed(1)) : 0;
+  const tankBaseAreaM2 = tankCircumferenceCm > 0 ? Number(((tankCircumferenceCm * tankCircumferenceCm) / (4 * Math.PI * 10000)).toFixed(3)) : 0;
+  const computedVolumeLiters = tankCircumferenceCm > 0 && tankHeightCm > 0
+    ? Math.max(10, Math.round(((tankCircumferenceCm * tankCircumferenceCm) / (4 * Math.PI * 1000)) * tankHeightCm))
+    : 5000;
+  const effectiveCapacity = autoCalcCapacity ? computedVolumeLiters : tankCapacityLiters;
+
+  const waterDepthCm = Math.max(0, Number((tankHeightCm - distanceCm).toFixed(1)));
+  const currentVolumeLiters = autoCalcCapacity
+    ? Math.max(0, Math.round(((tankCircumferenceCm * tankCircumferenceCm) / (4 * Math.PI * 1000)) * waterDepthCm))
+    : Math.round((waterLevel / 100) * effectiveCapacity);
 
   // Dynamic tank status badge
   const getStatusBadge = () => {
@@ -976,6 +979,15 @@ export default function WaterTankDashboard({
           <div className="flex flex-wrap items-center gap-2.5">
             <button
               type="button"
+              onClick={() => setDimensionModalOpen(true)}
+              className="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl bg-gradient-to-r from-cyan-500/20 to-blue-500/20 border border-cyan-400/40 text-cyan-200 text-xs font-bold hover:from-cyan-500/30 hover:to-blue-500/30 hover:border-cyan-400 transition-all cursor-pointer shadow-sm shadow-cyan-500/10"
+            >
+              <Ruler className="h-4 w-4 text-cyan-400" />
+              Set Depth & Circumference
+            </button>
+
+            <button
+              type="button"
               onClick={() => setProvisionModalOpen(true)}
               className="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl bg-cyan-600/20 border border-cyan-500/40 text-cyan-200 text-xs font-bold hover:bg-cyan-600/30 transition-all cursor-pointer shadow-sm"
             >
@@ -1026,419 +1038,196 @@ export default function WaterTankDashboard({
         )}
       </div>
 
-      {/* ================= CALIBRATION DRAWER: MANUAL DEPTH & WIDTH INPUTS ================= */}
+      {/* ================= CALIBRATION DRAWER ================= */}
       {settingsOpen && (
-        <div className="rounded-3xl border border-cyan-500/40 bg-slate-900/95 p-6 backdrop-blur-2xl animate-fadeIn space-y-6 shadow-[0_0_50px_rgba(6,182,212,0.15)] relative overflow-hidden">
-          <div className="absolute -right-20 -top-20 w-64 h-64 bg-cyan-500/10 rounded-full blur-3xl pointer-events-none" />
-
-          {/* Drawer Top Header */}
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-800 pb-4 relative z-10">
+        <div className="rounded-3xl border border-cyan-500/30 bg-slate-900/90 p-6 backdrop-blur-xl animate-fadeIn space-y-6">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-800 pb-4">
             <div>
-              <div className="flex items-center gap-2">
-                <span className="p-1.5 rounded-lg bg-cyan-500/20 text-cyan-400">
-                  <Ruler className="h-4 w-4" />
-                </span>
-                <h3 className="text-base font-black text-white tracking-wide">
-                  Tank Geometry & Physical Dimensions Calibration
-                </h3>
-              </div>
-              <p className="text-xs text-slate-400 mt-1">
-                Enter your physical water tank depth and width manually. Volume in Liters and telemetry are computed live.
+              <h3 className="text-base font-bold text-white flex items-center gap-2">
+                <Sliders className="h-4 w-4 text-cyan-400" /> Tank Geometry & Calibration Engine
+              </h3>
+              <p className="text-xs text-slate-400">
+                Manually input tank depth and circumference, calibrate acoustic dead-zones, and configure auto-refill thresholds.
               </p>
             </div>
-
-            <div className="flex items-center gap-2">
-              {/* Unit Toggle */}
-              <div className="flex items-center p-1 rounded-xl bg-slate-950 border border-slate-800">
-                <button
-                  type="button"
-                  onClick={() => setDimensionUnit('cm')}
-                  className={`px-3 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-                    dimensionUnit === 'cm'
-                      ? 'bg-cyan-500 text-slate-950 shadow-sm'
-                      : 'text-slate-400 hover:text-white'
-                  }`}
-                >
-                  cm
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setDimensionUnit('m')}
-                  className={`px-3 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-                    dimensionUnit === 'm'
-                      ? 'bg-cyan-500 text-slate-950 shadow-sm'
-                      : 'text-slate-400 hover:text-white'
-                  }`}
-                >
-                  meters
-                </button>
-              </div>
-
-              {/* Save Button */}
-              <button
-                type="button"
-                onClick={handleSaveSettings}
-                disabled={isUpdating}
-                className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 text-slate-950 font-black text-xs hover:from-cyan-400 hover:to-blue-500 transition-all cursor-pointer shadow-lg shadow-cyan-500/20"
-              >
-                <Save className="h-4 w-4" />
-                {isUpdating ? 'Saving...' : 'Save Dimensions'}
-              </button>
-            </div>
-          </div>
-
-          {/* SHAPE SELECTOR & PRESETS */}
-          <div className="space-y-3 relative z-10">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-              <span className="text-xs font-bold text-slate-300 flex items-center gap-1.5">
-                <Box className="h-3.5 w-3.5 text-cyan-400" /> 1. Tank Physical Architecture:
-              </span>
-
-              {/* Shape Buttons */}
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => setTankShape('CYLINDRICAL')}
-                  className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-bold transition-all cursor-pointer ${
-                    tankShape === 'CYLINDRICAL'
-                      ? 'bg-cyan-500/20 border-cyan-400 text-cyan-300 shadow-sm shadow-cyan-500/20'
-                      : 'bg-slate-950 border-slate-800 text-slate-400 hover:text-white'
-                  }`}
-                >
-                  <Circle className="h-3.5 w-3.5" />
-                  Cylindrical / Round Tank
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setTankShape('RECTANGULAR')}
-                  className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-bold transition-all cursor-pointer ${
-                    tankShape === 'RECTANGULAR'
-                      ? 'bg-cyan-500/20 border-cyan-400 text-cyan-300 shadow-sm shadow-cyan-500/20'
-                      : 'bg-slate-950 border-slate-800 text-slate-400 hover:text-white'
-                  }`}
-                >
-                  <Square className="h-3.5 w-3.5" />
-                  Rectangular / Sump Reservoir
-                </button>
-              </div>
-            </div>
-
-            {/* Quick Tank Presets Bar */}
-            <div className="flex flex-wrap items-center gap-2 p-3 rounded-2xl bg-slate-950/70 border border-slate-800/80">
-              <span className="text-[11px] font-semibold text-slate-400 flex items-center gap-1 mr-1">
-                <Sparkles className="h-3.5 w-3.5 text-amber-400" /> Quick Load Presets:
-              </span>
-              {TANK_PRESETS.map((pst, idx) => (
-                <button
-                  key={idx}
-                  type="button"
-                  onClick={() => {
-                    setTankHeightCm(pst.depth);
-                    setTankWidthCm(pst.width);
-                    if ('length' in pst && pst.length) setTankLengthCm(pst.length);
-                    setTankShape(pst.shape);
-                    setTankCapacityLiters(pst.capacity);
-                    recordActivity(`Applied tank preset: ${pst.label}`, 'info');
-                  }}
-                  className="px-2.5 py-1 rounded-lg bg-slate-900 border border-slate-800 hover:border-cyan-400/60 hover:text-cyan-300 text-slate-300 text-[11px] font-mono transition-all cursor-pointer"
-                >
-                  {pst.label}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {/* PRIMARY MANUAL INPUTS: DEPTH, WIDTH, LENGTH, CAPACITY */}
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 relative z-10">
-            {/* 1. MANUAL DEPTH (HEIGHT) INPUT */}
-            <div className="p-4 rounded-2xl bg-slate-950/80 border border-cyan-500/30 space-y-3">
-              <div className="flex items-center justify-between">
-                <label className="text-xs font-black text-slate-200 flex items-center gap-1.5">
-                  <Ruler className="h-4 w-4 text-cyan-400" /> Tank Depth (Height)
-                </label>
-                <span className="text-[10px] font-mono text-cyan-300 font-bold bg-cyan-500/10 px-2 py-0.5 rounded border border-cyan-500/20">
-                  {dimensionUnit === 'm' ? (tankHeightCm / 100).toFixed(2) + ' m' : tankHeightCm + ' cm'}
-                </span>
-              </div>
-
-              <div className="flex items-center gap-2">
-                <div className="relative flex-1">
-                  <input
-                    type="number"
-                    min="30"
-                    max="1000"
-                    step={dimensionUnit === 'm' ? '0.05' : '1'}
-                    value={dimensionUnit === 'm' ? Number((tankHeightCm / 100).toFixed(2)) : tankHeightCm}
-                    onChange={e => {
-                      const val = Number(e.target.value);
-                      if (!isNaN(val)) {
-                        setTankHeightCm(dimensionUnit === 'm' ? Math.round(val * 100) : val);
-                      }
-                    }}
-                    className="w-full px-3.5 py-2.5 rounded-xl bg-slate-900 border border-slate-700 text-white font-mono text-base font-black focus:border-cyan-400 focus:outline-none focus:ring-1 focus:ring-cyan-400"
-                    placeholder="Enter depth"
-                  />
-                  <span className="absolute right-3.5 top-2.5 text-xs font-bold text-slate-400 font-mono">
-                    {dimensionUnit}
-                  </span>
-                </div>
-                <div className="flex flex-col gap-1">
-                  <button
-                    type="button"
-                    onClick={() => setTankHeightCm(prev => Math.min(1000, prev + 5))}
-                    className="px-2 py-1 rounded bg-slate-800 text-[10px] font-bold text-slate-300 hover:bg-slate-700 hover:text-white cursor-pointer"
-                  >
-                    +5
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setTankHeightCm(prev => Math.max(30, prev - 5))}
-                    className="px-2 py-1 rounded bg-slate-800 text-[10px] font-bold text-slate-300 hover:bg-slate-700 hover:text-white cursor-pointer"
-                  >
-                    -5
-                  </button>
-                </div>
-              </div>
-
-              <input
-                type="range"
-                min="30"
-                max="500"
-                step="5"
-                value={tankHeightCm}
-                onChange={e => setTankHeightCm(Number(e.target.value))}
-                className="w-full accent-cyan-400 cursor-pointer"
-              />
-              <p className="text-[10px] text-slate-400 leading-tight">
-                Distance from transducer face to tank bottom floor.
-              </p>
-            </div>
-
-            {/* 2. MANUAL WIDTH (DIAMETER) INPUT */}
-            <div className="p-4 rounded-2xl bg-slate-950/80 border border-cyan-500/30 space-y-3">
-              <div className="flex items-center justify-between">
-                <label className="text-xs font-black text-slate-200 flex items-center gap-1.5">
-                  <Maximize2 className="h-4 w-4 text-cyan-400" /> Tank Width ({tankShape === 'CYLINDRICAL' ? 'Diameter' : 'Width'})
-                </label>
-                <span className="text-[10px] font-mono text-cyan-300 font-bold bg-cyan-500/10 px-2 py-0.5 rounded border border-cyan-500/20">
-                  {dimensionUnit === 'm' ? (tankWidthCm / 100).toFixed(2) + ' m' : tankWidthCm + ' cm'}
-                </span>
-              </div>
-
-              <div className="flex items-center gap-2">
-                <div className="relative flex-1">
-                  <input
-                    type="number"
-                    min="20"
-                    max="1000"
-                    step={dimensionUnit === 'm' ? '0.05' : '1'}
-                    value={dimensionUnit === 'm' ? Number((tankWidthCm / 100).toFixed(2)) : tankWidthCm}
-                    onChange={e => {
-                      const val = Number(e.target.value);
-                      if (!isNaN(val)) {
-                        setTankWidthCm(dimensionUnit === 'm' ? Math.round(val * 100) : val);
-                      }
-                    }}
-                    className="w-full px-3.5 py-2.5 rounded-xl bg-slate-900 border border-slate-700 text-white font-mono text-base font-black focus:border-cyan-400 focus:outline-none focus:ring-1 focus:ring-cyan-400"
-                    placeholder="Enter width"
-                  />
-                  <span className="absolute right-3.5 top-2.5 text-xs font-bold text-slate-400 font-mono">
-                    {dimensionUnit}
-                  </span>
-                </div>
-                <div className="flex flex-col gap-1">
-                  <button
-                    type="button"
-                    onClick={() => setTankWidthCm(prev => Math.min(1000, prev + 5))}
-                    className="px-2 py-1 rounded bg-slate-800 text-[10px] font-bold text-slate-300 hover:bg-slate-700 hover:text-white cursor-pointer"
-                  >
-                    +5
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setTankWidthCm(prev => Math.max(20, prev - 5))}
-                    className="px-2 py-1 rounded bg-slate-800 text-[10px] font-bold text-slate-300 hover:bg-slate-700 hover:text-white cursor-pointer"
-                  >
-                    -5
-                  </button>
-                </div>
-              </div>
-
-              <input
-                type="range"
-                min="30"
-                max="500"
-                step="5"
-                value={tankWidthCm}
-                onChange={e => setTankWidthCm(Number(e.target.value))}
-                className="w-full accent-cyan-400 cursor-pointer"
-              />
-              <p className="text-[10px] text-slate-400 leading-tight">
-                {tankShape === 'CYLINDRICAL' ? 'Across circular cylinder wall.' : 'Front-to-back width of reservoir.'}
-              </p>
-            </div>
-
-            {/* 3. RECTANGULAR LENGTH OR BLIND ZONE OFFSET */}
-            {tankShape === 'RECTANGULAR' ? (
-              <div className="p-4 rounded-2xl bg-slate-950/80 border border-purple-500/30 space-y-3">
-                <div className="flex items-center justify-between">
-                  <label className="text-xs font-black text-slate-200 flex items-center gap-1.5">
-                    <Box className="h-4 w-4 text-purple-400" /> Tank Length
-                  </label>
-                  <span className="text-[10px] font-mono text-purple-300 font-bold bg-purple-500/10 px-2 py-0.5 rounded border border-purple-500/20">
-                    {dimensionUnit === 'm' ? (tankLengthCm / 100).toFixed(2) + ' m' : tankLengthCm + ' cm'}
-                  </span>
-                </div>
-
-                <div className="flex items-center gap-2">
-                  <div className="relative flex-1">
-                    <input
-                      type="number"
-                      min="20"
-                      max="1000"
-                      step={dimensionUnit === 'm' ? '0.05' : '1'}
-                      value={dimensionUnit === 'm' ? Number((tankLengthCm / 100).toFixed(2)) : tankLengthCm}
-                      onChange={e => {
-                        const val = Number(e.target.value);
-                        if (!isNaN(val)) {
-                          setTankLengthCm(dimensionUnit === 'm' ? Math.round(val * 100) : val);
-                        }
-                      }}
-                      className="w-full px-3.5 py-2.5 rounded-xl bg-slate-900 border border-slate-700 text-white font-mono text-base font-black focus:border-purple-400 focus:outline-none focus:ring-1 focus:ring-purple-400"
-                      placeholder="Enter length"
-                    />
-                    <span className="absolute right-3.5 top-2.5 text-xs font-bold text-slate-400 font-mono">
-                      {dimensionUnit}
-                    </span>
-                  </div>
-                </div>
-
-                <input
-                  type="range"
-                  min="30"
-                  max="500"
-                  step="5"
-                  value={tankLengthCm}
-                  onChange={e => setTankLengthCm(Number(e.target.value))}
-                  className="w-full accent-purple-400 cursor-pointer"
-                />
-                <p className="text-[10px] text-slate-400 leading-tight">
-                  Side-to-side length of rectangular reservoir.
-                </p>
-              </div>
-            ) : (
-              <div className="p-4 rounded-2xl bg-slate-950/80 border border-slate-800 space-y-3">
-                <div className="flex items-center justify-between">
-                  <label className="text-xs font-black text-slate-200 flex items-center gap-1.5">
-                    <ShieldAlert className="h-4 w-4 text-amber-400" /> Sensor Blind Zone (Dead-Zone)
-                  </label>
-                  <span className="font-mono text-amber-300 font-bold text-xs">
-                    {minDistanceCm} cm
-                  </span>
-                </div>
-
-                <input
-                  type="number"
-                  min="15"
-                  max="50"
-                  value={minDistanceCm}
-                  onChange={e => setMinDistanceCm(Number(e.target.value))}
-                  className="w-full px-3.5 py-2.5 rounded-xl bg-slate-900 border border-slate-700 text-white font-mono text-sm font-bold"
-                />
-                <input
-                  type="range"
-                  min="15"
-                  max="40"
-                  value={minDistanceCm}
-                  onChange={e => setMinDistanceCm(Number(e.target.value))}
-                  className="w-full accent-amber-400 cursor-pointer"
-                />
-                <p className="text-[10px] text-slate-400 leading-tight">
-                  SR04M-2 cannot measure closer than 20cm (counts as 100% full).
-                </p>
-              </div>
-            )}
-
-            {/* 4. STORAGE CAPACITY (LITERS) */}
-            <div className="p-4 rounded-2xl bg-slate-950/80 border border-blue-500/30 space-y-3">
-              <div className="flex items-center justify-between">
-                <label className="text-xs font-black text-slate-200 flex items-center gap-1.5">
-                  <Database className="h-4 w-4 text-blue-400" /> Storage Capacity (Liters)
-                </label>
-                <span className="text-[10px] font-mono text-blue-300 font-bold bg-blue-500/10 px-2 py-0.5 rounded border border-blue-500/20">
-                  {tankCapacityLiters.toLocaleString()} L
-                </span>
-              </div>
-
-              <input
-                type="number"
-                min="100"
-                max="50000"
-                step="50"
-                value={tankCapacityLiters}
-                onChange={e => setTankCapacityLiters(Number(e.target.value))}
-                className="w-full px-3.5 py-2.5 rounded-xl bg-slate-900 border border-slate-700 text-white font-mono text-base font-black focus:border-blue-400 focus:outline-none"
-              />
-
-              <input
-                type="range"
-                min="500"
-                max="20000"
-                step="500"
-                value={tankCapacityLiters}
-                onChange={e => setTankCapacityLiters(Number(e.target.value))}
-                className="w-full accent-blue-400 cursor-pointer"
-              />
-              <p className="text-[10px] text-slate-400 leading-tight">
-                Total rated volume capacity when filled to maximum.
-              </p>
-            </div>
-          </div>
-
-          {/* REAL-TIME GEOMETRIC VOLUME CALCULATOR RIBBON */}
-          <div className="p-4 rounded-2xl bg-gradient-to-r from-cyan-950/40 via-blue-950/40 to-slate-950/60 border border-cyan-500/30 flex flex-col sm:flex-row items-center justify-between gap-4">
-            <div className="flex items-center gap-3">
-              <div className="p-2.5 rounded-xl bg-cyan-500/20 text-cyan-300">
-                <Calculator className="h-5 w-5" />
-              </div>
-              <div className="space-y-0.5">
-                <div className="text-xs font-bold text-slate-200 flex items-center gap-2">
-                  <span>Calculated Geometric Volume:</span>
-                  <span className="font-mono text-cyan-300 font-black text-sm">
-                    {calculatedVolumeLiters.toLocaleString()} Liters
-                  </span>
-                  <span className="text-[10px] text-slate-400 font-mono">
-                    ({(calculatedVolumeLiters / 1000).toFixed(2)} m³)
-                  </span>
-                </div>
-                <p className="text-[11px] text-slate-400 font-mono">
-                  {tankShape === 'CYLINDRICAL'
-                    ? `Formula: π × (${(tankWidthCm / 2).toFixed(1)}cm)² × ${tankHeightCm}cm ÷ 1000`
-                    : `Formula: ${tankWidthCm}cm × ${tankLengthCm}cm × ${tankHeightCm}cm ÷ 1000`}
-                </p>
-              </div>
-            </div>
-
             <button
               type="button"
-              onClick={() => {
-                setTankCapacityLiters(calculatedVolumeLiters);
-                setSyncMessage(`Applied calculated ${calculatedVolumeLiters.toLocaleString()}L as storage capacity!`);
-                setTimeout(() => setSyncMessage(''), 2500);
-              }}
-              className="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl bg-cyan-500/20 border border-cyan-500/40 text-cyan-200 text-xs font-bold hover:bg-cyan-500/30 transition-all cursor-pointer shadow-sm shrink-0"
+              onClick={handleSaveSettings}
+              disabled={isUpdating}
+              className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 text-slate-950 font-black text-xs hover:from-cyan-400 hover:to-blue-500 transition-all cursor-pointer shadow-lg shadow-cyan-500/20 shrink-0"
             >
-              <Zap className="h-3.5 w-3.5 text-cyan-400" />
-              Apply Calculated Volume
+              <Save className="h-4 w-4" />
+              Save & Sync All
             </button>
           </div>
 
-          {/* AUTOMATED REFILL THRESHOLDS */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2 border-t border-slate-800">
+          {/* DEDICATED MANUAL TANK DIMENSIONS CARD (DEPTH & CIRCUMFERENCE) */}
+          <div className="p-5 rounded-2xl bg-slate-950/80 border border-cyan-500/30 space-y-5">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-800 pb-3">
+              <div className="flex items-center gap-2.5">
+                <div className="p-2 rounded-xl bg-cyan-500/10 text-cyan-400 border border-cyan-500/20">
+                  <Ruler className="h-5 w-5" />
+                </div>
+                <div>
+                  <h4 className="text-sm font-bold text-white flex items-center gap-2">
+                    Physical Tank Dimensions (Manual Input)
+                    <span className="text-[10px] font-mono font-normal text-cyan-400 bg-cyan-950/60 px-2 py-0.5 rounded border border-cyan-500/30">
+                      Cylindrical Tank Model
+                    </span>
+                  </h4>
+                  <p className="text-xs text-slate-400">
+                    Input your manual tape measurements: Depth determines sensor distance span; Circumference determines total volume.
+                  </p>
+                </div>
+              </div>
+
+              {/* Auto-calc capacity checkbox */}
+              <label className="flex items-center gap-2 text-xs text-slate-300 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={autoCalcCapacity}
+                  onChange={e => setAutoCalcCapacity(e.target.checked)}
+                  className="rounded border-slate-700 text-cyan-500 focus:ring-cyan-400/20"
+                />
+                <span className="text-slate-300 font-medium">Auto-Calculate Capacity</span>
+              </label>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+              {/* 1. MANUAL DEPTH INPUT */}
+              <div className="p-4 rounded-xl bg-slate-900 border border-slate-800 space-y-3">
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-bold text-slate-200 flex items-center gap-1.5">
+                    <Gauge className="h-3.5 w-3.5 text-cyan-400" />
+                    Tank Depth / Total Height (H)
+                  </label>
+                  <span className="text-[11px] font-mono text-cyan-300 bg-cyan-950/50 px-2 py-0.5 rounded border border-cyan-800/40">
+                    {(tankHeightCm / 100).toFixed(2)} m · {(tankHeightCm / 30.48).toFixed(1)} ft
+                  </span>
+                </div>
+
+                <div className="relative">
+                  <input
+                    type="number"
+                    step="0.5"
+                    min="30"
+                    max="2000"
+                    value={tankHeightCm}
+                    onChange={e => setTankHeightCm(Math.max(10, Number(e.target.value) || 0))}
+                    className="w-full px-4 py-2.5 rounded-xl bg-slate-950 border border-slate-700 text-lg font-mono font-bold text-cyan-300 focus:outline-none focus:border-cyan-400 pr-12"
+                    placeholder="100.0"
+                  />
+                  <span className="absolute right-3.5 top-3 text-xs font-bold text-slate-400">cm</span>
+                </div>
+
+                <div className="space-y-1">
+                  <div className="text-[10px] text-slate-400">Quick Depth Presets:</div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {[80, 100, 120, 150, 180, 200, 250, 300].map(h => (
+                      <button
+                        key={h}
+                        type="button"
+                        onClick={() => setTankHeightCm(h)}
+                        className={`px-2 py-0.5 rounded text-[10px] font-mono font-bold transition-all cursor-pointer ${
+                          tankHeightCm === h
+                            ? 'bg-cyan-500 text-slate-950'
+                            : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
+                        }`}
+                      >
+                        {h}cm
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <p className="text-[10px] text-slate-500 leading-relaxed">
+                  Vertical distance from the bottom face of the JSN-SR04T sensor to the interior floor bottom of the tank.
+                </p>
+              </div>
+
+              {/* 2. MANUAL CIRCUMFERENCE INPUT */}
+              <div className="p-4 rounded-xl bg-slate-900 border border-slate-800 space-y-3">
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-bold text-slate-200 flex items-center gap-1.5">
+                    <CircleDot className="h-3.5 w-3.5 text-blue-400" />
+                    Tank Circumference (C)
+                  </label>
+                  <span className="text-[11px] font-mono text-blue-300 bg-blue-950/50 px-2 py-0.5 rounded border border-blue-800/40">
+                    Ø {tankDiameterCm} cm ({(tankDiameterCm / 100).toFixed(2)} m)
+                  </span>
+                </div>
+
+                <div className="relative">
+                  <input
+                    type="number"
+                    step="0.5"
+                    min="30"
+                    max="5000"
+                    value={tankCircumferenceCm}
+                    onChange={e => setTankCircumferenceCm(Math.max(10, Number(e.target.value) || 0))}
+                    className="w-full px-4 py-2.5 rounded-xl bg-slate-950 border border-slate-700 text-lg font-mono font-bold text-blue-300 focus:outline-none focus:border-cyan-400 pr-12"
+                    placeholder="314.16"
+                  />
+                  <span className="absolute right-3.5 top-3 text-xs font-bold text-slate-400">cm</span>
+                </div>
+
+                <div className="space-y-1">
+                  <div className="text-[10px] text-slate-400">Standard Cylindrical Presets:</div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {[
+                      { c: 251.3, label: '251cm (Ø0.8m)' },
+                      { c: 314.2, label: '314cm (Ø1.0m)' },
+                      { c: 377.0, label: '377cm (Ø1.2m)' },
+                      { c: 471.2, label: '471cm (Ø1.5m)' },
+                      { c: 565.5, label: '565cm (Ø1.8m)' },
+                      { c: 628.3, label: '628cm (Ø2.0m)' }
+                    ].map(preset => (
+                      <button
+                        key={preset.c}
+                        type="button"
+                        onClick={() => setTankCircumferenceCm(preset.c)}
+                        className={`px-2 py-0.5 rounded text-[10px] font-mono font-bold transition-all cursor-pointer ${
+                          Math.abs(tankCircumferenceCm - preset.c) < 1
+                            ? 'bg-blue-500 text-slate-950'
+                            : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
+                        }`}
+                      >
+                        {preset.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <p className="text-[10px] text-slate-500 leading-relaxed">
+                  Wrap a measuring tape horizontally around your cylindrical tank. Diameter is auto-derived (D = C / π).
+                </p>
+              </div>
+            </div>
+
+            {/* LIVE GEOMETRY DERIVATION BANNER */}
+            <div className="p-3.5 rounded-xl bg-gradient-to-r from-cyan-950/40 via-blue-950/30 to-purple-950/40 border border-cyan-500/20 grid grid-cols-2 sm:grid-cols-4 gap-3 text-center">
+              <div>
+                <span className="text-[10px] text-slate-400 block">Calculated Volume</span>
+                <span className="text-base font-black font-mono text-cyan-300">{computedVolumeLiters.toLocaleString()} L</span>
+              </div>
+              <div>
+                <span className="text-[10px] text-slate-400 block">Derived Diameter (Ø)</span>
+                <span className="text-base font-black font-mono text-blue-300">{tankDiameterCm} cm</span>
+              </div>
+              <div>
+                <span className="text-[10px] text-slate-400 block">Floor Base Area</span>
+                <span className="text-base font-black font-mono text-emerald-300">{tankBaseAreaM2} m²</span>
+              </div>
+              <div>
+                <span className="text-[10px] text-slate-400 block">Water Factor</span>
+                <span className="text-base font-black font-mono text-purple-300">{((tankCircumferenceCm * tankCircumferenceCm) / (4 * Math.PI * 1000)).toFixed(1)} L/cm</span>
+              </div>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             {/* Low Threshold */}
             <div className="p-4 rounded-2xl bg-slate-950/60 border border-slate-800 space-y-2">
               <div className="flex justify-between text-xs">
-                <span className="text-slate-400 font-semibold">Auto-Fill Engaged (Low Cut-In)</span>
+                <span className="text-slate-400">Auto-Fill Cut-in (Low)</span>
                 <span className="font-mono font-bold text-rose-400">{lowThreshold}%</span>
               </div>
               <input
@@ -1449,13 +1238,13 @@ export default function WaterTankDashboard({
                 onChange={e => setLowThreshold(Number(e.target.value))}
                 className="w-full accent-rose-500 cursor-pointer"
               />
-              <p className="text-[10px] text-slate-500">Pump starts automatically when water level falls below this.</p>
+              <p className="text-[10px] text-slate-500">Pump starts automatically when level drops below this.</p>
             </div>
 
             {/* Full Threshold */}
             <div className="p-4 rounded-2xl bg-slate-950/60 border border-slate-800 space-y-2">
               <div className="flex justify-between text-xs">
-                <span className="text-slate-400 font-semibold">Auto-Cutoff Limit (Tank Full)</span>
+                <span className="text-slate-400">Auto-Cutoff (Full)</span>
                 <span className="font-mono font-bold text-emerald-400">{fullThreshold}%</span>
               </div>
               <input
@@ -1466,44 +1255,34 @@ export default function WaterTankDashboard({
                 onChange={e => setFullThreshold(Number(e.target.value))}
                 className="w-full accent-emerald-500 cursor-pointer"
               />
-              <p className="text-[10px] text-slate-500">Pump stops automatically when water reaches this capacity.</p>
+              <p className="text-[10px] text-slate-500">Pump cuts off when level reaches this capacity.</p>
+            </div>
+
+            {/* Nominal Capacity Override (if auto-calc disabled) */}
+            <div className="p-4 rounded-2xl bg-slate-950/60 border border-slate-800 space-y-2">
+              <div className="flex justify-between text-xs">
+                <span className="text-slate-400">Nominal Storage Capacity</span>
+                <span className="font-mono font-bold text-blue-400">{effectiveCapacity.toLocaleString()} L</span>
+              </div>
+              <input
+                type="number"
+                step="50"
+                min="50"
+                max="50000"
+                disabled={autoCalcCapacity}
+                value={effectiveCapacity}
+                onChange={e => setTankCapacityLiters(Math.max(10, Number(e.target.value) || 0))}
+                className={`w-full px-3 py-1 rounded-lg bg-slate-950 border border-slate-700 text-xs font-mono font-bold text-blue-300 ${
+                  autoCalcCapacity ? 'opacity-60 cursor-not-allowed' : 'cursor-text'
+                }`}
+              />
+              <p className="text-[10px] text-slate-500">
+                {autoCalcCapacity ? 'Auto-derived from Depth & Circumference.' : 'Manual nominal override enabled.'}
+              </p>
             </div>
           </div>
         </div>
       )}
-
-      {/* ================= TANK PHYSICAL PROFILE BAR ================= */}
-      <div className="rounded-2xl border border-cyan-500/20 bg-slate-900/60 px-5 py-3.5 backdrop-blur-md flex flex-col md:flex-row md:items-center justify-between gap-3 shadow-lg">
-        <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 text-xs">
-          <span className="font-black text-slate-200 flex items-center gap-1.5">
-            <Ruler className="h-4 w-4 text-cyan-400" /> Tank Profile:
-          </span>
-          <span className="text-slate-300">
-            Shape: <strong className="text-cyan-300">{tankShape === 'CYLINDRICAL' ? 'Round (Cylinder)' : 'Box (Rectangular)'}</strong>
-          </span>
-          <span className="text-slate-500">|</span>
-          <span className="text-slate-300">
-            Depth: <strong className="text-cyan-300">{tankHeightCm} cm</strong> <span className="text-slate-400 font-mono">({(tankHeightCm / 100).toFixed(2)} m)</span>
-          </span>
-          <span className="text-slate-500">|</span>
-          <span className="text-slate-300">
-            Width: <strong className="text-cyan-300">{tankWidthCm} cm</strong> <span className="text-slate-400 font-mono">({(tankWidthCm / 100).toFixed(2)} m)</span>
-          </span>
-          <span className="text-slate-500">|</span>
-          <span className="text-slate-300">
-            Capacity: <strong className="text-blue-300">{tankCapacityLiters.toLocaleString()} L</strong>
-          </span>
-        </div>
-
-        <button
-          type="button"
-          onClick={() => setSettingsOpen(true)}
-          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-cyan-500/10 border border-cyan-500/30 text-cyan-300 text-xs font-bold hover:bg-cyan-500/20 transition-all cursor-pointer self-start md:self-auto shrink-0"
-        >
-          <Edit3 className="h-3.5 w-3.5" />
-          Edit Dimensions
-        </button>
-      </div>
 
       {/* ================= MAIN TELEMETRY & TANK VISUALIZER GRID ================= */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-stretch">
@@ -1513,10 +1292,8 @@ export default function WaterTankDashboard({
             <span className="text-xs font-bold text-slate-300 flex items-center gap-2">
               <Waves className="h-4 w-4 text-cyan-400" /> Real-time Acoustic Waveform
             </span>
-            <span className="text-[10px] font-mono text-cyan-300 bg-slate-950 px-2.5 py-0.5 rounded-full border border-cyan-500/30 flex items-center gap-1.5 shadow-inner">
-              <span>{tankShape === 'CYLINDRICAL' ? 'Ø ' : 'W: '}{tankWidthCm}cm</span>
-              <span className="text-slate-500">×</span>
-              <span>D: {tankHeightCm}cm</span>
+            <span className="text-[11px] font-mono text-cyan-400/80 bg-slate-950 px-2 py-0.5 rounded border border-cyan-500/20">
+              JSN-SR04T Beam
             </span>
           </div>
 
@@ -1623,6 +1400,28 @@ export default function WaterTankDashboard({
               className="w-full accent-cyan-400 cursor-pointer"
             />
           </div>
+
+          {/* Tank Physical Dimensions Quick Badge */}
+          <div className="mt-3 p-3 rounded-2xl bg-slate-950/70 border border-slate-800 text-[11px] font-mono flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Ruler className="h-4 w-4 text-cyan-400 shrink-0" />
+              <div>
+                <span className="text-slate-300 font-semibold block">
+                  Depth: <strong className="text-cyan-300">{tankHeightCm}cm</strong> · Circ: <strong className="text-blue-300">{tankCircumferenceCm}cm</strong>
+                </span>
+                <span className="text-[10px] text-slate-500 block">
+                  Ø {tankDiameterCm} cm diameter · {effectiveCapacity.toLocaleString()} L total volume
+                </span>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => setDimensionModalOpen(true)}
+              className="px-2.5 py-1 rounded-lg bg-cyan-500/10 border border-cyan-500/30 text-cyan-300 text-xs font-bold hover:bg-cyan-500/20 cursor-pointer transition-all shrink-0 ml-2"
+            >
+              Edit
+            </button>
+          </div>
         </div>
 
         {/* RIGHT COLUMN: METRIC TILES & CONTROLS (7 COLS) */}
@@ -1649,7 +1448,7 @@ export default function WaterTankDashboard({
                 {currentVolumeLiters.toLocaleString()}
                 <span className="text-xs font-normal text-slate-400 ml-1">L</span>
               </div>
-              <div className="text-[10px] text-slate-400 font-mono">of {tankCapacityLiters.toLocaleString()} L</div>
+              <div className="text-[10px] text-slate-400 font-mono">of {effectiveCapacity.toLocaleString()} L</div>
             </div>
 
             {/* 3. Ultrasonic Distance */}
@@ -1673,7 +1472,7 @@ export default function WaterTankDashboard({
                 {waterDepthCm.toFixed(1)}
                 <span className="text-xs font-normal text-slate-400 ml-1">cm</span>
               </div>
-              <div className="text-[10px] text-slate-400 font-mono">Total Depth: {tankHeightCm} cm</div>
+              <div className="text-[10px] text-slate-400 font-mono">Total {tankHeightCm} cm</div>
             </div>
           </div>
 
@@ -1868,6 +1667,206 @@ export default function WaterTankDashboard({
                 <Printer className="h-4 w-4" />
                 Print Sticker
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ================= MODAL: MANUAL TANK DIMENSIONS SETUP ================= */}
+      {dimensionModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/85 p-4 backdrop-blur-md animate-fadeIn">
+          <div className="w-full max-w-2xl max-h-[90vh] overflow-y-auto rounded-3xl border border-cyan-500/40 bg-slate-900 p-6 shadow-2xl space-y-5">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+              <div className="flex items-center gap-2.5">
+                <div className="p-2 rounded-xl bg-cyan-500/10 text-cyan-400 border border-cyan-500/20">
+                  <Ruler className="h-5 w-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-white flex items-center gap-2">
+                    Tank Physical Dimensions Setup
+                  </h3>
+                  <p className="text-xs text-slate-400">
+                    Input your manual tape measurements to calibrate depth span and volume capacity.
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setDimensionModalOpen(false)}
+                className="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-800 cursor-pointer"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            {/* Illustrated Measuring Guide */}
+            <div className="p-4 rounded-2xl bg-slate-950 border border-slate-800 grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
+              <div className="space-y-1.5 p-3 rounded-xl bg-cyan-950/20 border border-cyan-800/30">
+                <span className="font-bold text-cyan-300 flex items-center gap-1.5">
+                  <Gauge className="h-4 w-4" /> 1. Measuring Depth (Height):
+                </span>
+                <p className="text-slate-400 text-[11px] leading-relaxed">
+                  Measure the vertical distance from the <strong>bottom face of the JSN-SR04T sensor</strong> straight down to the <strong>bottom floor</strong> of the tank.
+                </p>
+              </div>
+
+              <div className="space-y-1.5 p-3 rounded-xl bg-blue-950/20 border border-blue-800/30">
+                <span className="font-bold text-blue-300 flex items-center gap-1.5">
+                  <CircleDot className="h-4 w-4" /> 2. Measuring Circumference:
+                </span>
+                <p className="text-slate-400 text-[11px] leading-relaxed">
+                  Wrap a flexible measuring tape horizontally around the <strong>cylindrical belly</strong> of your tank. Diameter is auto-computed (D = C / π).
+                </p>
+              </div>
+            </div>
+
+            {/* Direct Manual Inputs */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
+              {/* Depth Input */}
+              <div className="p-4 rounded-2xl bg-slate-950/70 border border-slate-800 space-y-3">
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-bold text-slate-200 flex items-center gap-1.5">
+                    <Gauge className="h-4 w-4 text-cyan-400" />
+                    Total Tank Depth (Height)
+                  </label>
+                  <span className="text-[11px] font-mono text-cyan-300 bg-cyan-950 px-2 py-0.5 rounded border border-cyan-800/40">
+                    {(tankHeightCm / 100).toFixed(2)} m
+                  </span>
+                </div>
+
+                <div className="relative">
+                  <input
+                    type="number"
+                    step="0.5"
+                    min="20"
+                    max="2000"
+                    value={tankHeightCm}
+                    onChange={e => setTankHeightCm(Math.max(10, Number(e.target.value) || 0))}
+                    className="w-full px-4 py-2.5 rounded-xl bg-slate-900 border border-slate-700 text-lg font-mono font-bold text-cyan-300 focus:outline-none focus:border-cyan-400 pr-12"
+                    placeholder="100.0"
+                  />
+                  <span className="absolute right-3.5 top-3 text-xs font-bold text-slate-400">cm</span>
+                </div>
+
+                <div className="flex flex-wrap gap-1.5 pt-1">
+                  {[80, 100, 120, 150, 180, 200, 250, 300].map(h => (
+                    <button
+                      key={h}
+                      type="button"
+                      onClick={() => setTankHeightCm(h)}
+                      className={`px-2 py-0.5 rounded text-[10px] font-mono font-bold transition-all cursor-pointer ${
+                        tankHeightCm === h
+                          ? 'bg-cyan-500 text-slate-950'
+                          : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
+                      }`}
+                    >
+                      {h}cm
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Circumference Input */}
+              <div className="p-4 rounded-2xl bg-slate-950/70 border border-slate-800 space-y-3">
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-bold text-slate-200 flex items-center gap-1.5">
+                    <CircleDot className="h-4 w-4 text-blue-400" />
+                    Tank Circumference
+                  </label>
+                  <span className="text-[11px] font-mono text-blue-300 bg-blue-950 px-2 py-0.5 rounded border border-blue-800/40">
+                    Ø {tankDiameterCm} cm
+                  </span>
+                </div>
+
+                <div className="relative">
+                  <input
+                    type="number"
+                    step="0.5"
+                    min="30"
+                    max="5000"
+                    value={tankCircumferenceCm}
+                    onChange={e => setTankCircumferenceCm(Math.max(10, Number(e.target.value) || 0))}
+                    className="w-full px-4 py-2.5 rounded-xl bg-slate-900 border border-slate-700 text-lg font-mono font-bold text-blue-300 focus:outline-none focus:border-cyan-400 pr-12"
+                    placeholder="314.16"
+                  />
+                  <span className="absolute right-3.5 top-3 text-xs font-bold text-slate-400">cm</span>
+                </div>
+
+                <div className="flex flex-wrap gap-1.5 pt-1">
+                  {[
+                    { c: 251.3, label: '251cm (Ø0.8m)' },
+                    { c: 314.2, label: '314cm (Ø1.0m)' },
+                    { c: 377.0, label: '377cm (Ø1.2m)' },
+                    { c: 471.2, label: '471cm (Ø1.5m)' },
+                    { c: 565.5, label: '565cm (Ø1.8m)' },
+                    { c: 628.3, label: '628cm (Ø2.0m)' }
+                  ].map(preset => (
+                    <button
+                      key={preset.c}
+                      type="button"
+                      onClick={() => setTankCircumferenceCm(preset.c)}
+                      className={`px-2 py-0.5 rounded text-[10px] font-mono font-bold transition-all cursor-pointer ${
+                        Math.abs(tankCircumferenceCm - preset.c) < 1
+                          ? 'bg-blue-500 text-slate-950'
+                          : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
+                      }`}
+                    >
+                      {preset.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            {/* Calculated Geometry Summary Box */}
+            <div className="p-4 rounded-2xl bg-gradient-to-r from-cyan-950/50 via-slate-950 to-blue-950/50 border border-cyan-500/20 grid grid-cols-2 sm:grid-cols-4 gap-3 text-center">
+              <div className="p-2 rounded-xl bg-slate-900/60 border border-slate-800">
+                <span className="text-[10px] text-slate-400 block font-medium">Computed Capacity</span>
+                <span className="text-base font-black font-mono text-cyan-300">{computedVolumeLiters.toLocaleString()} L</span>
+              </div>
+              <div className="p-2 rounded-xl bg-slate-900/60 border border-slate-800">
+                <span className="text-[10px] text-slate-400 block font-medium">Base Diameter</span>
+                <span className="text-base font-black font-mono text-blue-300">Ø {tankDiameterCm} cm</span>
+              </div>
+              <div className="p-2 rounded-xl bg-slate-900/60 border border-slate-800">
+                <span className="text-[10px] text-slate-400 block font-medium">Floor Area</span>
+                <span className="text-base font-black font-mono text-emerald-300">{tankBaseAreaM2} m²</span>
+              </div>
+              <div className="p-2 rounded-xl bg-slate-900/60 border border-slate-800">
+                <span className="text-[10px] text-slate-400 block font-medium">Volume per cm</span>
+                <span className="text-base font-black font-mono text-purple-300">{((tankCircumferenceCm * tankCircumferenceCm) / (4 * Math.PI * 1000)).toFixed(1)} L/cm</span>
+              </div>
+            </div>
+
+            <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-2">
+              <label className="flex items-center gap-2 text-xs text-slate-300 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={autoCalcCapacity}
+                  onChange={e => setAutoCalcCapacity(e.target.checked)}
+                  className="rounded border-slate-700 text-cyan-500 focus:ring-cyan-400/20"
+                />
+                <span className="text-slate-300">Auto-update Nominal Capacity to {computedVolumeLiters.toLocaleString()} L</span>
+              </label>
+
+              <div className="flex gap-2 w-full sm:w-auto">
+                <button
+                  type="button"
+                  onClick={() => setDimensionModalOpen(false)}
+                  className="px-4 py-2.5 rounded-xl border border-slate-700 text-xs font-bold text-slate-300 hover:bg-slate-800 cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleSaveDimensions()}
+                  disabled={isUpdating}
+                  className="flex-1 sm:flex-none inline-flex items-center justify-center gap-2 px-6 py-2.5 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 text-slate-950 font-black text-xs hover:from-cyan-400 hover:to-blue-500 transition-all cursor-pointer shadow-lg shadow-cyan-500/20"
+                >
+                  <Save className="h-4 w-4" />
+                  Apply & Save to Cloud
+                </button>
+              </div>
             </div>
           </div>
         </div>
