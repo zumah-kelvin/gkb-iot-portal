@@ -4,6 +4,7 @@ import { relayControlEnabled, relaySupabase, relaySupabaseConfigError } from './
 import BleProvisioningModal from './BleProvisioningModal';
 import LightControlDashboard from './LightControlDashboard';
 import WaterTankDashboard from './WaterTankDashboard';
+import SmartSecurityDashboard from './SmartSecurityDashboard';
 import {
   Cpu, Shield, Wrench, Phone, Mail, Globe,
   User, Lock, LogOut, CheckCircle, AlertTriangle,
@@ -26,6 +27,7 @@ export type StudentProject =
   | 'relay-test'
   | 'light-control'
   | 'water-tank-monitor'
+  | 'smart-security-system'
   | 'fuel-tank-monitor'
   | 'prepaid-energy-meter'
   | 'fan-regulator'
@@ -72,6 +74,15 @@ const defaultDevices: Device[] = [
     status: 'Active Target',
     lastAlert: 'JSN-SR04T Ultrasonic Telemetry · Submersible Pump Relay GPIO 23 · BLE & QR Provisioning',
     project: 'water-tank-monitor'
+  },
+  {
+    id: 3,
+    name: 'Smart Home Security System v1',
+    key: 'GKBSEC-00106',
+    legacyKeys: ['GKB-SEC-0001', 'GKB-SEC-9988'],
+    status: 'Active Target',
+    lastAlert: 'PIR Motion (GPIO 15) · Siren Strobe (GPIO 23) · Audio Buzzer (GPIO 19)',
+    project: 'smart-security-system'
   },
   {
     id: 6,
@@ -691,12 +702,14 @@ function GenericFleetPreviewDashboard({
   device,
   onSwitchToLightControl,
   onSwitchToRelayPilot,
-  onSwitchToWaterTank
+  onSwitchToWaterTank,
+  onSwitchToSecurity
 }: {
   device: Device;
   onSwitchToLightControl: () => void;
   onSwitchToRelayPilot: () => void;
   onSwitchToWaterTank?: () => void;
+  onSwitchToSecurity?: () => void;
 }) {
   return (
     <section aria-labelledby="fleet-device-title" className="mx-auto max-w-5xl space-y-6 animate-fadeIn">
@@ -726,23 +739,32 @@ function GenericFleetPreviewDashboard({
       <div className="rounded-2xl border border-cyan-500/30 bg-gradient-to-r from-cyan-500/10 via-slate-900 to-slate-900 p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div className="flex items-center gap-3">
           <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-cyan-500/20 text-cyan-300 shrink-0">
-            <Droplets className="h-6 w-6" />
+            <Shield className="h-6 w-6 text-red-400" />
           </div>
           <div>
-            <h4 className="text-sm font-bold text-white">Active Hardware Target: Smart Water Tank Monitor</h4>
+            <h4 className="text-sm font-bold text-white">Active Hardware Targets: Smart Security & Water Monitor</h4>
             <p className="text-xs text-slate-400">
-              JSN-SR04T ultrasonic depth telemetry, automated submersible pump relay (GPIO 23), and BLE provisioning.
+              PIR Motion (GPIO 15), Siren Strobe (GPIO 23), Ultrasonic Tank Depth, and Web BLE Provisioning.
             </p>
           </div>
         </div>
         <div className="flex flex-wrap items-center gap-2">
+          {onSwitchToSecurity && (
+            <button
+              type="button"
+              onClick={onSwitchToSecurity}
+              className="inline-flex items-center gap-1.5 rounded-xl border border-red-500/50 bg-red-500/15 px-4 py-2 text-xs font-bold text-red-300 hover:bg-red-500/25 transition-all cursor-pointer shadow-md shadow-red-500/10"
+            >
+              <Shield className="h-4 w-4" /> Smart Security
+            </button>
+          )}
           {onSwitchToWaterTank && (
             <button
               type="button"
               onClick={onSwitchToWaterTank}
               className="inline-flex items-center gap-1.5 rounded-xl bg-gradient-to-r from-cyan-400 to-blue-500 px-4 py-2 text-xs font-bold text-slate-950 hover:opacity-90 transition-all cursor-pointer shadow-lg shadow-cyan-500/20"
             >
-              <Droplets className="h-4 w-4" /> Open Water Tank Monitor
+              <Droplets className="h-4 w-4" /> Water Tank Monitor
             </button>
           )}
           <button
@@ -1373,9 +1395,12 @@ export default function IoTDevicePortal() {
               <LightControlDashboard mode="service" device={selectedDevice} />
             ) : selectedDevice.project === 'water-tank-monitor' || selectedDevice.key === 'GKB-SWP-0001' ? (
               <WaterTankDashboard mode="service" device={selectedDevice} />
+            ) : selectedDevice.project === 'smart-security-system' || selectedDevice.key === 'GKBSEC-00106' || selectedDevice.key === 'GKB-SEC-0001' ? (
+              <SmartSecurityDashboard mode="service" device={selectedDevice} />
             ) : (
               <GenericFleetPreviewDashboard
                 device={selectedDevice}
+                onSwitchToSecurity={() => setSelectedDevice(defaultDevices[3])}
                 onSwitchToWaterTank={() => setSelectedDevice(defaultDevices[2])}
                 onSwitchToLightControl={() => setSelectedDevice(defaultDevices[1])}
                 onSwitchToRelayPilot={() => setSelectedDevice(defaultDevices[0])}
