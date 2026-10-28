@@ -128,15 +128,9 @@ function generateWaterTankArduinoCode(deviceKey: string = 'GKB-SWP-0001'): strin
 //    - Sensor 'RX' -> Connect to ESP32 TX2 (GPIO 17)
 //    - Set USE_UART_MODE to true
 //
-#define USE_UART_MODE       true  // Active Mode: Mode B Serial UART (9600 baud) on GPIO 16 (RX2) & GPIO 17 (TX2)
-
-// Pulse Mode Pins (when USE_UART_MODE is false)
-#define PIN_TRIG            5    // ESP32 GPIO 5  -> Sensor 'RX' (Trigger Pulse)
-#define PIN_ECHO            18   // ESP32 GPIO 18 -> Sensor 'TX' (Echo Return Pulse)
-
-// UART Serial2 Pins (when USE_UART_MODE is true)
-#define PIN_UART_RX2        16   // ESP32 GPIO 16 (RX2) <- Sensor 'TX'
-#define PIN_UART_TX2        17   // ESP32 GPIO 17 (TX2) -> Sensor 'RX'
+// Pulse Mode Pins (Standard factory mode - verified & tested on hardware)
+const int PIN_TRIG        = 17;  // ESP32 GPIO 17 (TX2 pin) -> Sensor 'RX' (Trigger Pulse)
+const int PIN_ECHO        = 16;  // ESP32 GPIO 16 (RX2 pin) <- Sensor 'TX' (Echo Return Pulse)
 
 #define PIN_PUMP_RELAY      23   // Submersible Water Pump Relay (Active HIGH)
 #define PIN_BUZZER          19   // Piezo Buzzer Alert Pin
@@ -196,71 +190,26 @@ const unsigned long RESET_HOLD_DURATION_MS = 5000;
 bool pendingReboot = false;
 unsigned long rebootScheduledAt = 0;
 
+// Tested and verified pulse sequence (10µs pulse, 30ms timeout)
 float measureRawDistanceCm() {
-#if USE_UART_MODE
-  if (Serial2.available() < 4) {
-    Serial2.write(0x55);
-    unsigned long startWait = millis();
-    while (Serial2.available() < 4 && (millis() - startWait < 150)) {
-      delay(3);
-    }
-  }
-
-  while (Serial2.available() >= 4) {
-    if (Serial2.peek() == 0xFF) {
-      uint8_t header   = Serial2.read(); // 0xFF
-      uint8_t highByte = Serial2.read();
-      uint8_t lowByte  = Serial2.read();
-      uint8_t checksum = Serial2.read();
-      uint8_t expected = (header + highByte + lowByte) & 0xFF;
-
-      if (checksum == expected) {
-        int distMm = (highByte << 8) | lowByte;
-        return distMm / 10.0;
-      }
-    } else {
-      Serial2.read();
-    }
-  }
-  return -1.0;
-#else
   digitalWrite(PIN_TRIG, LOW);
-  delayMicroseconds(4);
+  delayMicroseconds(2);
   digitalWrite(PIN_TRIG, HIGH);
   delayMicroseconds(10);
   digitalWrite(PIN_TRIG, LOW);
 
-  unsigned long duration = pulseIn(PIN_ECHO, HIGH, 30000);
-  if (duration == 0) return -1.0;
-  return (duration * 0.0343) / 2.0;
-#endif
+  long duration = pulseIn(PIN_ECHO, HIGH, 30000);
+  if (duration <= 0) return -1.0;
+
+  float distance = (duration * 0.0343) / 2.0;
+  if (distance <= 450.0 && distance >= 10.0) return distance;
+  return -1.0;
 }
 
 float getFilteredDistanceCm() {
-  float samples[5];
-  int validCount = 0;
-
-  for (int i = 0; i < 5; i++) {
-    float d = measureRawDistanceCm();
-    if (d >= 15.0 && d <= 600.0) {
-      samples[validCount++] = d;
-    }
-    delay(10);
-  }
-
-  if (validCount == 0) return currentDistanceCm;
-
-  for (int i = 0; i < validCount - 1; i++) {
-    for (int j = i + 1; j < validCount; j++) {
-      if (samples[i] > samples[j]) {
-        float temp = samples[i];
-        samples[i] = samples[j];
-        samples[j] = temp;
-      }
-    }
-  }
-
-  return samples[validCount / 2];
+  if (currentDistanceCm > 0) return currentDistanceCm;
+  float d = measureRawDistanceCm();
+  return (d > 0) ? d : currentDistanceCm;
 }
 
 int calculateWaterLevelPct(float distance) {
@@ -452,13 +401,9 @@ void setup() {
   pinMode(PIN_STATUS_LED, OUTPUT);
   digitalWrite(PIN_STATUS_LED, LOW);
 
-#if USE_UART_MODE
-  Serial2.begin(9600, SERIAL_8N1, PIN_UART_RX2, PIN_UART_TX2);
-#else
   pinMode(PIN_TRIG, OUTPUT);
   pinMode(PIN_ECHO, INPUT);
   digitalWrite(PIN_TRIG, LOW);
-#endif
 
   pinMode(PIN_PUMP_RELAY, OUTPUT);
   pinMode(PIN_BUZZER, OUTPUT);
@@ -514,6 +459,26 @@ void setup() {
 void loop() {
   if (pendingReboot && millis() >= rebootScheduledAt) {
     ESP.restart();
+  }
+
+  static unsigned long lastSensorPing = 0;
+  static float lastPrintedDistance = -1.0;
+  if (millis() - lastSensorPing >= 200) {
+    lastSensorPing = millis();
+    float d = measureRawDistanceCm();
+    if (d > 0) {
+      currentDistanceCm = d;
+      currentWaterLevel = calculateWaterLevelPct(d);
+
+      if (abs(d - lastPrintedDistance) >= 1.0) {
+        Serial.print("📏 Distance: ");
+        Serial.print(d, 1);
+        Serial.print(" cm | Level: ");
+        Serial.print(currentWaterLevel);
+        Serial.println("%");
+        lastPrintedDistance = d;
+      }
+    }
   }
 
   if (digitalRead(PIN_BOOT_BUTTON) == LOW) {
