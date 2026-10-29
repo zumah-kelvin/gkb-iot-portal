@@ -5,6 +5,7 @@ import BleProvisioningModal from './BleProvisioningModal';
 import LightControlDashboard from './LightControlDashboard';
 import WaterTankDashboard from './WaterTankDashboard';
 import SmartSecurityDashboard from './SmartSecurityDashboard';
+import FanRegulatorDashboard from './FanRegulatorDashboard';
 import {
   Cpu, Shield, Wrench, Phone, Mail, Globe,
   User, Lock, LogOut, CheckCircle, AlertTriangle,
@@ -105,8 +106,8 @@ const defaultDevices: Device[] = [
     name: 'Smart Fan Regulator',
     key: 'GKB-FAN-0001',
     legacyKeys: ['GKB-SFLC-0001'],
-    status: 'Fleet',
-    lastAlert: 'Multi-speed capacitor relay bank',
+    status: 'Active Target',
+    lastAlert: 'Multi-speed capacitor relay bank · DHT22 Environmental Telemetry · Auto-Thermal Trigger',
     project: 'fan-regulator'
   },
   {
@@ -703,13 +704,15 @@ function GenericFleetPreviewDashboard({
   onSwitchToLightControl,
   onSwitchToRelayPilot,
   onSwitchToWaterTank,
-  onSwitchToSecurity
+  onSwitchToSecurity,
+  onSwitchToFanRegulator
 }: {
   device: Device;
   onSwitchToLightControl: () => void;
   onSwitchToRelayPilot: () => void;
   onSwitchToWaterTank?: () => void;
   onSwitchToSecurity?: () => void;
+  onSwitchToFanRegulator?: () => void;
 }) {
   return (
     <section aria-labelledby="fleet-device-title" className="mx-auto max-w-5xl space-y-6 animate-fadeIn">
@@ -765,6 +768,15 @@ function GenericFleetPreviewDashboard({
               className="inline-flex items-center gap-1.5 rounded-xl bg-gradient-to-r from-cyan-400 to-blue-500 px-4 py-2 text-xs font-bold text-slate-950 hover:opacity-90 transition-all cursor-pointer shadow-lg shadow-cyan-500/20"
             >
               <Droplets className="h-4 w-4" /> Water Tank Monitor
+            </button>
+          )}
+          {onSwitchToFanRegulator && (
+            <button
+              type="button"
+              onClick={onSwitchToFanRegulator}
+              className="inline-flex items-center gap-1.5 rounded-xl border border-cyan-500/50 bg-cyan-500/15 px-4 py-2 text-xs font-bold text-cyan-300 hover:bg-cyan-500/25 transition-all cursor-pointer shadow-md shadow-cyan-500/10"
+            >
+              <Wind className="h-4 w-4" /> Smart Fan
             </button>
           )}
           <button
@@ -1397,9 +1409,12 @@ export default function IoTDevicePortal() {
               <WaterTankDashboard mode="service" device={selectedDevice} />
             ) : selectedDevice.project === 'smart-security-system' || selectedDevice.key === 'GKBSEC-00106' || selectedDevice.key === 'GKB-SEC-0001' ? (
               <SmartSecurityDashboard mode="service" device={selectedDevice} />
+            ) : selectedDevice.project === 'fan-regulator' || selectedDevice.key === 'GKB-FAN-0001' || selectedDevice.key === 'GKB-SFLC-0001' ? (
+              <FanRegulatorDashboard mode="service" device={selectedDevice} />
             ) : (
               <GenericFleetPreviewDashboard
                 device={selectedDevice}
+                onSwitchToFanRegulator={() => setSelectedDevice(defaultDevices[6])}
                 onSwitchToSecurity={() => setSelectedDevice(defaultDevices[3])}
                 onSwitchToWaterTank={() => setSelectedDevice(defaultDevices[2])}
                 onSwitchToLightControl={() => setSelectedDevice(defaultDevices[1])}
