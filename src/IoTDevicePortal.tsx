@@ -82,7 +82,7 @@ const defaultDevices: Device[] = [
     key: 'GKBSEC-00106',
     legacyKeys: ['GKB-SEC-0001', 'GKB-SEC-9988'],
     status: 'Active Target',
-    lastAlert: 'PIR Motion (GPIO 15) · Siren Strobe (GPIO 23) · Audio Buzzer (GPIO 19)',
+    lastAlert: 'PIR Motion (GPIO 15) · Siren Strobe (GPIO 23) · Buzzer (GPIO 19) · GSM SIM800L Auto-Dial & SMS',
     project: 'smart-security-system'
   },
   {

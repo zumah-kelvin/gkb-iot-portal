@@ -108,8 +108,20 @@ CREATE TRIGGER trg_update_fan_status_timestamp
   FOR EACH ROW
   EXECUTE FUNCTION update_fan_status_timestamp();
 
--- 8. Enable Realtime Replication
-ALTER PUBLICATION supabase_realtime ADD TABLE public.fan_regulator_status;
+-- 8. Enable Realtime Replication (Idempotent check)
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_publication_tables
+    WHERE pubname = 'supabase_realtime'
+      AND schemaname = 'public'
+      AND tablename = 'fan_regulator_status'
+  ) THEN
+    ALTER PUBLICATION supabase_realtime ADD TABLE public.fan_regulator_status;
+  END IF;
+END;
+$$;
 
 -- 9. RPC: Set Fan Speed (0 to 5)
 CREATE OR REPLACE FUNCTION public.set_fan_speed(p_speed INTEGER)

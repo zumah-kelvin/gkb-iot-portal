@@ -1,9 +1,9 @@
 -- =====================================================================================
--- GKB TECHNOLOGIES — SMART HOME SECURITY SYSTEM v1 (PIR SENSOR + SIREN RELAY + BUZZER)
--- Schema Setup, Row-Level Security (RLS), and Initial Fleet Seeding
+-- GKB TECHNOLOGIES — SMART HOME SECURITY SYSTEM v1 (PIR + SIREN RELAY + BUZZER + GSM SIM800L)
+-- Schema Setup, Row-Level Security (RLS), GSM Telemetry Seeding & Helper RPCs
 -- =====================================================================================
 
--- 1. Create the home_security_status table
+-- 1. Create the home_security_status table (if not exists)
 CREATE TABLE IF NOT EXISTS public.home_security_status (
   device_id TEXT PRIMARY KEY DEFAULT 'security_01',
   device_key TEXT NOT NULL DEFAULT 'GKBSEC-00106',
@@ -19,7 +19,24 @@ CREATE TABLE IF NOT EXISTS public.home_security_status (
   updated_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now())
 );
 
--- 2. Seed initial primary fleet record: security_01
+-- 2. Add GSM Cellular Modem Subsystem Columns (Idempotent for existing databases)
+ALTER TABLE public.home_security_status
+  ADD COLUMN IF NOT EXISTS gsm_enabled BOOLEAN NOT NULL DEFAULT true,
+  ADD COLUMN IF NOT EXISTS gsm_signal_csq INTEGER NOT NULL DEFAULT 24,
+  ADD COLUMN IF NOT EXISTS gsm_network_operator TEXT NOT NULL DEFAULT 'MTN-GH',
+  ADD COLUMN IF NOT EXISTS gsm_sim_status TEXT NOT NULL DEFAULT 'READY',
+  ADD COLUMN IF NOT EXISTS gsm_call_state TEXT NOT NULL DEFAULT 'IDLE',
+  ADD COLUMN IF NOT EXISTS gsm_last_sms_status TEXT NOT NULL DEFAULT 'IDLE',
+  ADD COLUMN IF NOT EXISTS primary_phone TEXT NOT NULL DEFAULT '0552117787',
+  ADD COLUMN IF NOT EXISTS secondary_phone TEXT NOT NULL DEFAULT '',
+  ADD COLUMN IF NOT EXISTS sms_on_alarm BOOLEAN NOT NULL DEFAULT true,
+  ADD COLUMN IF NOT EXISTS call_on_alarm BOOLEAN NOT NULL DEFAULT true,
+  ADD COLUMN IF NOT EXISTS sms_on_arm_disarm BOOLEAN NOT NULL DEFAULT false,
+  ADD COLUMN IF NOT EXISTS last_sms_sent_at TIMESTAMPTZ,
+  ADD COLUMN IF NOT EXISTS last_call_made_at TIMESTAMPTZ,
+  ADD COLUMN IF NOT EXISTS gsm_test_requested TEXT DEFAULT 'NONE';
+
+-- 3. Seed initial primary fleet record: security_01
 INSERT INTO public.home_security_status (
   device_id,
   device_key,
@@ -30,7 +47,18 @@ INSERT INTO public.home_security_status (
   buzzer_active,
   sound_muted,
   pir_sensitivity,
-  last_tripped_at
+  last_tripped_at,
+  gsm_enabled,
+  gsm_signal_csq,
+  gsm_network_operator,
+  gsm_sim_status,
+  gsm_call_state,
+  gsm_last_sms_status,
+  primary_phone,
+  secondary_phone,
+  sms_on_alarm,
+  call_on_alarm,
+  sms_on_arm_disarm
 )
 VALUES (
   'security_01',
@@ -42,17 +70,32 @@ VALUES (
   false,
   false,
   'high',
-  timezone('utc'::text, now())
+  timezone('utc'::text, now()),
+  true,
+  24,
+  'MTN-GH',
+  'READY',
+  'IDLE',
+  'IDLE',
+  '0552117787',
+  '',
+  true,
+  true,
+  false
 )
-ON CONFLICT (device_id) DO NOTHING;
+ON CONFLICT (device_id) DO UPDATE SET
+  gsm_enabled = COALESCE(public.home_security_status.gsm_enabled, EXCLUDED.gsm_enabled),
+  primary_phone = COALESCE(NULLIF(public.home_security_status.primary_phone, ''), EXCLUDED.primary_phone),
+  sms_on_alarm = COALESCE(public.home_security_status.sms_on_alarm, EXCLUDED.sms_on_alarm),
+  call_on_alarm = COALESCE(public.home_security_status.call_on_alarm, EXCLUDED.call_on_alarm);
 
--- 3. Enable Row-Level Security (RLS)
+-- 4. Enable Row-Level Security (RLS)
 ALTER TABLE public.home_security_status ENABLE ROW LEVEL SECURITY;
 
--- 4. Grant table privileges to anon and authenticated roles
+-- 5. Grant table privileges to anon and authenticated roles
 GRANT SELECT, UPDATE, INSERT ON public.home_security_status TO anon, authenticated;
 
--- 5. Read policy: Allow public read access to fleet security devices
+-- 6. Read policy: Allow public read access to fleet security devices
 DROP POLICY IF EXISTS security_select_policy ON public.home_security_status;
 CREATE POLICY security_select_policy
   ON public.home_security_status
@@ -60,7 +103,7 @@ CREATE POLICY security_select_policy
   TO anon, authenticated
   USING (device_id = 'security_01');
 
--- 6. Update policy: Allow updating security state, arming modes, and alarms
+-- 7. Update policy: Allow updating security state, arming modes, and GSM settings
 DROP POLICY IF EXISTS security_update_policy ON public.home_security_status;
 CREATE POLICY security_update_policy
   ON public.home_security_status
@@ -69,7 +112,7 @@ CREATE POLICY security_update_policy
   USING (device_id = 'security_01')
   WITH CHECK (device_id = 'security_01');
 
--- 7. Timestamp Auto-Update Trigger
+-- 8. Timestamp Auto-Update Trigger
 CREATE OR REPLACE FUNCTION update_security_status_timestamp()
 RETURNS TRIGGER AS $$
 BEGIN
@@ -84,10 +127,22 @@ CREATE TRIGGER trg_update_security_status_timestamp
   FOR EACH ROW
   EXECUTE FUNCTION update_security_status_timestamp();
 
--- 8. Enable Realtime Replication
-ALTER PUBLICATION supabase_realtime ADD TABLE public.home_security_status;
+-- 9. Enable Realtime Replication (Idempotent check)
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_publication_tables
+    WHERE pubname = 'supabase_realtime'
+      AND schemaname = 'public'
+      AND tablename = 'home_security_status'
+  ) THEN
+    ALTER PUBLICATION supabase_realtime ADD TABLE public.home_security_status;
+  END IF;
+END;
+$$;
 
--- 9. RPC: Set Armed Mode ('away', 'stay', 'disarmed')
+-- 10. RPC: Set Armed Mode ('away', 'stay', 'disarmed')
 CREATE OR REPLACE FUNCTION public.set_security_armed_mode(p_mode TEXT)
 RETURNS JSON AS $$
 DECLARE
@@ -121,7 +176,7 @@ $$ LANGUAGE plpgsql SECURITY DEFINER;
 
 GRANT EXECUTE ON FUNCTION public.set_security_armed_mode(TEXT) TO anon, authenticated;
 
--- 10. RPC: Clear Alarm / Silence Siren
+-- 11. RPC: Clear Alarm / Silence Siren
 CREATE OR REPLACE FUNCTION public.clear_security_alarm()
 RETURNS JSON AS $$
 DECLARE
@@ -142,7 +197,7 @@ $$ LANGUAGE plpgsql SECURITY DEFINER;
 
 GRANT EXECUTE ON FUNCTION public.clear_security_alarm() TO anon, authenticated;
 
--- 11. RPC: Panic Button / Manual Alarm Trigger
+-- 12. RPC: Panic Button / Manual Alarm Trigger
 CREATE OR REPLACE FUNCTION public.trigger_security_panic()
 RETURNS JSON AS $$
 DECLARE
@@ -163,3 +218,56 @@ END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
 GRANT EXECUTE ON FUNCTION public.trigger_security_panic() TO anon, authenticated;
+
+-- 13. RPC: Update Emergency Contacts & GSM Dispatch Rules
+CREATE OR REPLACE FUNCTION public.update_security_gsm_settings(
+  p_primary_phone TEXT,
+  p_secondary_phone TEXT,
+  p_sms_on_alarm BOOLEAN,
+  p_call_on_alarm BOOLEAN,
+  p_sms_on_arm_disarm BOOLEAN,
+  p_gsm_enabled BOOLEAN DEFAULT true
+)
+RETURNS JSON AS $$
+DECLARE
+  v_updated RECORD;
+BEGIN
+  UPDATE public.home_security_status
+  SET primary_phone = p_primary_phone,
+      secondary_phone = p_secondary_phone,
+      sms_on_alarm = p_sms_on_alarm,
+      call_on_alarm = p_call_on_alarm,
+      sms_on_arm_disarm = p_sms_on_arm_disarm,
+      gsm_enabled = p_gsm_enabled,
+      updated_at = timezone('utc'::text, now())
+  WHERE device_id = 'security_01'
+  RETURNING * INTO v_updated;
+
+  RETURN row_to_json(v_updated);
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+GRANT EXECUTE ON FUNCTION public.update_security_gsm_settings(TEXT, TEXT, BOOLEAN, BOOLEAN, BOOLEAN, BOOLEAN) TO anon, authenticated;
+
+-- 14. RPC: Request GSM Live Test (SMS or Call)
+CREATE OR REPLACE FUNCTION public.trigger_security_gsm_test(p_test_type TEXT)
+RETURNS JSON AS $$
+DECLARE
+  v_updated RECORD;
+BEGIN
+  IF p_test_type NOT IN ('TEST_SMS', 'TEST_CALL', 'NONE') THEN
+    RAISE EXCEPTION 'Invalid test type: %. Must be TEST_SMS or TEST_CALL', p_test_type;
+  END IF;
+
+  UPDATE public.home_security_status
+  SET gsm_test_requested = p_test_type,
+      updated_at = timezone('utc'::text, now())
+  WHERE device_id = 'security_01'
+  RETURNING * INTO v_updated;
+
+  RETURN row_to_json(v_updated);
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+GRANT EXECUTE ON FUNCTION public.trigger_security_gsm_test(TEXT) TO anon, authenticated;
+
