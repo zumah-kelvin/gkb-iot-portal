@@ -1038,17 +1038,29 @@ class CharacteristicCallbacks: public BLECharacteristicCallbacks {
       int ssidEnd   = json.indexOf("\\"", ssidStart);
       int passStart = json.indexOf("\\"pass\\":\\"") + 8;
       int passEnd   = json.indexOf("\\"", passStart);
+      int phoneStart = json.indexOf("\\"phone\\":\\"") + 9;
+      int phoneEnd   = json.indexOf("\\"", phoneStart);
 
       if (ssidStart >= 8 && ssidEnd != -1) {
         wifiSSID = json.substring(ssidStart, ssidEnd);
         wifiPassword = (passStart >= 8 && passEnd != -1) ? json.substring(passStart, passEnd) : "";
 
-        Serial.printf("💾 [FLASH] Saving Wi-Fi: SSID='%s'\\n", wifiSSID.c_str());
+        if (phoneStart >= 9 && phoneEnd != -1) {
+          String parsedPhone = json.substring(phoneStart, phoneEnd);
+          parsedPhone = sanitizePhoneNumber(parsedPhone);
+          if (parsedPhone.length() >= 9) {
+            primaryPhone = parsedPhone;
+            Serial.printf("📱 [BLE CONFIG] Emergency Alert Phone received: %s\\n", primaryPhone.c_str());
+          }
+        }
+
+        Serial.printf("💾 [FLASH] Saving Config: SSID='%s', Phone='%s'\\n", wifiSSID.c_str(), primaryPhone.c_str());
         preferences.begin("gkb_prov", false);
         preferences.putBool("provisioned", true);
         preferences.putString("device_key", deviceKey);
         preferences.putString("wifi_ssid", wifiSSID);
         preferences.putString("wifi_pass", wifiPassword);
+        preferences.putString("primary_phone", primaryPhone);
         preferences.end();
 
         pTxCharacteristic->setValue("CONFIG_SAVED:REBOOTING");
@@ -1092,6 +1104,7 @@ void setup() {
   deviceKey     = preferences.getString("device_key", DEFAULT_DEVICE_KEY);
   wifiSSID      = preferences.getString("wifi_ssid", "");
   wifiPassword  = preferences.getString("wifi_pass", "");
+  primaryPhone  = preferences.getString("primary_phone", primaryPhone);
   preferences.end();
 
   Serial.println("=======================================================");
@@ -1103,6 +1116,7 @@ void setup() {
   Serial.printf("🔑 Casing Device Key   : %s\\n", deviceKey.c_str());
   Serial.printf("📡 Supabase Device ID  : %s\\n", SUPABASE_DEVICE_ID);
   Serial.printf("📦 Provisioning Status : %s\\n", isProvisioned ? "PROVISIONED" : "UNPROVISIONED");
+  Serial.printf("📱 Emergency Alert Num : %s\\n", primaryPhone.c_str());
   Serial.println("📌 Pin Allocation:");
   Serial.printf("   - PIR Motion Sensor : GPIO %d (Input)\\n", PIN_PIR);
   Serial.printf("   - Siren Strobe Relay: GPIO %d (Output)\\n", PIN_SIREN_RELAY);
@@ -2604,6 +2618,7 @@ export default function SmartSecurityDashboard({
         onClose={() => setProvisionModalOpen(false)}
         deviceKey={deviceKey}
         deviceName={device?.name || 'Smart Home Security System v1'}
+        initialPhone={primaryPhone}
       />
 
       {/* Firmware Code Modal */}

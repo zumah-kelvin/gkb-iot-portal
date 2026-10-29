@@ -1,9 +1,10 @@
 import React, { useState, useEffect, useRef } from 'react';
 import {
   Bluetooth, QrCode, Wifi, CheckCircle2, AlertTriangle, X,
-  Camera, RefreshCw, Key, ShieldCheck, Printer, Eye, EyeOff, Radio, Cpu, Smartphone
+  Camera, RefreshCw, Key, ShieldCheck, Printer, Eye, EyeOff, Radio, Cpu, Smartphone, Phone
 } from 'lucide-react';
 import { createQrSvg } from './qrCodeHelper';
+import { relaySupabase } from './supabase';
 
 // GKB Provisioning GATT UUIDs
 export const GKB_BLE_SERVICE_UUID = '4fafc201-1fb5-459e-8fcc-c5c9c331914b';
@@ -13,10 +14,13 @@ export const GKB_BLE_CHAR_TX_UUID = 'beb5483f-36e1-4688-b7f5-ea07361b26a9'; // E
 export interface BleProvisioningModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onDeviceProvisioned: (deviceKey: string, deviceName: string) => void;
+  onDeviceProvisioned?: (deviceKey: string, deviceName: string) => void;
   initialDeviceKey?: string;
   initialShowLabel?: boolean;
   channelVariant?: 2 | 4 | 6 | 8;
+  deviceKey?: string;
+  deviceName?: string;
+  initialPhone?: string;
 }
 
 export default function BleProvisioningModal({
@@ -25,7 +29,10 @@ export default function BleProvisioningModal({
   onDeviceProvisioned,
   initialDeviceKey = 'GKB-RELAY-0001',
   initialShowLabel = false,
-  channelVariant
+  channelVariant,
+  deviceKey,
+  deviceName,
+  initialPhone
 }: BleProvisioningModalProps) {
   // Modal Step State: 'ble_connect' -> 'qr_verify' -> 'wifi_config' -> 'complete'
   const [step, setStep] = useState<'ble_connect' | 'qr_verify' | 'wifi_config' | 'complete'>('ble_connect');
@@ -51,6 +58,9 @@ export default function BleProvisioningModal({
   const [showPass, setShowPass] = useState(false);
   const [isSendingWifi, setIsSendingWifi] = useState(false);
   const [wifiError, setWifiError] = useState('');
+
+  // Emergency Alert Contact State (GSM cellular auto-dial & SMS alerts)
+  const [emergencyPhone, setEmergencyPhone] = useState(initialPhone || '+233256905290');
 
   // Factory Label Mode
   const [showFactoryLabel, setShowFactoryLabel] = useState(initialShowLabel);
@@ -79,10 +89,14 @@ export default function BleProvisioningModal({
       setWifiError('');
       setIsCameraActive(false);
     } else {
-      setDeviceKeyInput(initialDeviceKey);
+      const activeKey = deviceKey || initialDeviceKey;
+      setDeviceKeyInput(activeKey);
       setShowFactoryLabel(initialShowLabel);
+      if (initialPhone) {
+        setEmergencyPhone(initialPhone);
+      }
     }
-  }, [isOpen, initialDeviceKey, initialShowLabel]);
+  }, [isOpen, initialDeviceKey, initialShowLabel, deviceKey, initialPhone]);
 
   // Clean up camera stream
   const stopCamera = () => {
@@ -274,13 +288,16 @@ export default function BleProvisioningModal({
 
     setIsSendingWifi(true);
     setWifiError('');
-    addLog(`>> [APP-RX]: Sending SET_WIFI payload for SSID "${wifiSsid.trim()}"`);
+    addLog(`>> [APP-RX]: Sending SET_WIFI payload for SSID "${wifiSsid.trim()}" and Alert Phone "${emergencyPhone.trim()}"`);
 
     try {
       const payloadObj: Record<string, any> = {
         ssid: wifiSsid.trim(),
         pass: wifiPass
       };
+      if (emergencyPhone && emergencyPhone.trim()) {
+        payloadObj.phone = emergencyPhone.trim();
+      }
       if (channelVariant) {
         payloadObj.channels = channelVariant;
       }
@@ -293,21 +310,46 @@ export default function BleProvisioningModal({
       } else {
         await rxChar.writeValue(encoded);
       }
-      addLog('Credentials transmitted to ESP32! Board rebooting into Cloud Relay mode...');
+      addLog('Credentials transmitted to ESP32! Board rebooting into Cloud mode...');
+
+      // Also update Supabase database directly if configuring Smart Security System
+      const activeTargetKey = deviceKey || initialDeviceKey || deviceKeyInput;
+      if (activeTargetKey === 'GKB-SEC-0001' && emergencyPhone.trim() && relaySupabase) {
+        try {
+          await relaySupabase
+            .from('home_security_status')
+            .update({ primary_phone: emergencyPhone.trim() })
+            .eq('device_id', 'security_01');
+          addLog(`📱 Updated Supabase emergency dispatch phone to ${emergencyPhone.trim()}`);
+        } catch (dbErr) {
+          console.warn('Note updating primary_phone in Supabase:', dbErr);
+        }
+      }
+
       setIsSendingWifi(false);
       setStep('complete');
       setTimeout(() => {
-        onDeviceProvisioned(deviceKeyInput, `GKB Relay Module (${deviceKeyInput})`);
+        onDeviceProvisioned?.(deviceKeyInput, deviceName || `GKB Device (${deviceKeyInput})`);
       }, 1800);
     } catch (err: any) {
       console.warn('Bluetooth transmission / disconnect note:', err);
       // In iOS Bluefy, Chrome, and Android WebBLE, the ESP32 writes to flash and restarts,
       // terminating the GATT connection. Any error or disconnect here means credentials were received!
-      addLog('⚡ ESP32 received Wi-Fi credentials and initiated flash restart into Cloud Relay mode.');
+      addLog('⚡ ESP32 received Wi-Fi and Alert Phone credentials and initiated flash restart.');
+
+      const activeTargetKey = deviceKey || initialDeviceKey || deviceKeyInput;
+      if (activeTargetKey === 'GKB-SEC-0001' && emergencyPhone.trim() && relaySupabase) {
+        relaySupabase
+          .from('home_security_status')
+          .update({ primary_phone: emergencyPhone.trim() })
+          .eq('device_id', 'security_01')
+          .then();
+      }
+
       setIsSendingWifi(false);
       setStep('complete');
       setTimeout(() => {
-        onDeviceProvisioned(deviceKeyInput, `GKB Relay Module (${deviceKeyInput})`);
+        onDeviceProvisioned?.(deviceKeyInput, deviceName || `GKB Device (${deviceKeyInput})`);
       }, 1800);
     }
   };
@@ -626,6 +668,27 @@ export default function BleProvisioningModal({
                   </button>
                 </div>
               </label>
+
+              {/* Emergency Alert Phone Number (Voice Call & SMS Alert) */}
+              <label className="block text-xs text-slate-300">
+                <div className="flex items-center justify-between">
+                  <span>Emergency Alert Phone Number (Calls & SMS)</span>
+                  <span className="text-[10px] text-cyan-400 font-mono">SIM800L Auto-Dial</span>
+                </div>
+                <div className="relative mt-1">
+                  <input
+                    type="tel"
+                    value={emergencyPhone}
+                    onChange={e => setEmergencyPhone(e.target.value)}
+                    placeholder="e.g. +233 256905290 or 0256905290"
+                    className="w-full rounded-xl border border-slate-700 bg-slate-950 pl-10 pr-4 py-3 text-sm text-white font-mono focus:border-cyan-400 focus:outline-none"
+                  />
+                  <Phone className="absolute left-3.5 top-3.5 h-4 w-4 text-slate-400" />
+                </div>
+                <p className="text-[10px] text-slate-400 mt-1">
+                  The primary phone number that receives automated cellular calls and SMS alert warnings when an intrusion occurs.
+                </p>
+              </label>
             </div>
 
             {wifiError && (
@@ -643,11 +706,21 @@ export default function BleProvisioningModal({
                 if (!rxChar && wifiSsid.trim()) {
                   e.preventDefault();
                   setIsSendingWifi(true);
+
+                  const activeTargetKey = deviceKey || initialDeviceKey || deviceKeyInput;
+                  if (activeTargetKey === 'GKB-SEC-0001' && emergencyPhone.trim() && relaySupabase) {
+                    relaySupabase
+                      .from('home_security_status')
+                      .update({ primary_phone: emergencyPhone.trim() })
+                      .eq('device_id', 'security_01')
+                      .then();
+                  }
+
                   setTimeout(() => {
                     setIsSendingWifi(false);
                     setStep('complete');
                     setTimeout(() => {
-                      onDeviceProvisioned(deviceKeyInput, `GKB Relay Module (${deviceKeyInput})`);
+                      onDeviceProvisioned?.(deviceKeyInput, deviceName || `GKB Device (${deviceKeyInput})`);
                     }, 1800);
                   }, 900);
                 }
