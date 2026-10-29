@@ -73,8 +73,8 @@ ALTER TABLE public.home_security_status
   ADD COLUMN IF NOT EXISTS gsm_last_sms_status TEXT NOT NULL DEFAULT 'IDLE',
   ADD COLUMN IF NOT EXISTS primary_phone TEXT NOT NULL DEFAULT '+233256905290',
   ADD COLUMN IF NOT EXISTS secondary_phone TEXT NOT NULL DEFAULT '',
-  ADD COLUMN IF NOT EXISTS emergency_contacts JSONB DEFAULT '[{"id":"1","name":"Primary Security Line","phone":"+233256905290","isPrimary":true,"enableCall":true,"enableSms":true}]'::jsonb,
-  ADD COLUMN IF NOT EXISTS sms_on_alarm BOOLEAN NOT NULL DEFAULT true,
+  ADD COLUMN IF NOT EXISTS emergency_contacts JSONB DEFAULT '[{"id":"1","name":"Primary Security Line","phone":"+233256905290","isPrimary":true,"enableCall":true,"enableSms":false}]'::jsonb,
+  ADD COLUMN IF NOT EXISTS sms_on_alarm BOOLEAN NOT NULL DEFAULT false,
   ADD COLUMN IF NOT EXISTS call_on_alarm BOOLEAN NOT NULL DEFAULT true,
   ADD COLUMN IF NOT EXISTS sms_on_arm_disarm BOOLEAN NOT NULL DEFAULT false,
   ADD COLUMN IF NOT EXISTS last_sms_sent_at TIMESTAMPTZ,
@@ -125,8 +125,8 @@ VALUES (
   'IDLE',
   '+233256905290',
   '',
-  '[{"id":"1","name":"Primary Security Line","phone":"+233256905290","isPrimary":true,"enableCall":true,"enableSms":true}]'::jsonb,
-  true,
+  '[{"id":"1","name":"Primary Security Line","phone":"+233256905290","isPrimary":true,"enableCall":true,"enableSms":false}]'::jsonb,
+  false,
   true,
   false
 )
@@ -135,8 +135,14 @@ ON CONFLICT (device_id) DO UPDATE SET
   gsm_enabled = COALESCE(public.home_security_status.gsm_enabled, EXCLUDED.gsm_enabled),
   primary_phone = EXCLUDED.primary_phone,
   emergency_contacts = COALESCE(public.home_security_status.emergency_contacts, EXCLUDED.emergency_contacts),
-  sms_on_alarm = COALESCE(public.home_security_status.sms_on_alarm, EXCLUDED.sms_on_alarm),
-  call_on_alarm = COALESCE(public.home_security_status.call_on_alarm, EXCLUDED.call_on_alarm);
+  sms_on_alarm = false,
+  call_on_alarm = true;
+
+-- Ensure device security_01 operates in Call-Only mode
+UPDATE public.home_security_status
+SET sms_on_alarm = false,
+    call_on_alarm = true
+WHERE device_id = 'security_01';
 
 -- 4. Enable Row-Level Security (RLS)
 ALTER TABLE public.home_security_status ENABLE ROW LEVEL SECURITY;
@@ -423,8 +429,8 @@ String gsmCallState       = "IDLE";   // "IDLE", "DIALING", "RINGING", "COMPLETE
 String gsmLastSmsStatus   = "IDLE";   // "IDLE", "SENDING", "SENT_OK", "FAILED"
 String primaryPhone       = "+233256905290";
 String secondaryPhone     = "";
-bool   smsOnAlarm         = true;
-bool   callOnAlarm        = true;
+bool   smsOnAlarm         = false; // Default: CALL ONLY (SMS disabled)
+bool   callOnAlarm        = true;  // Default: Voice Call auto-dial active
 bool   smsOnArmDisarm     = false;
 String gsmTestRequested   = "NONE";
 
@@ -738,28 +744,32 @@ void triggerIntruderGsmAlerts(const String& zoneName) {
 
   Serial.printf("🚨 [INTRUDER PROTOCOL] Triggering GSM alerts for zone '%s'!\\n", zoneName.c_str());
 
-  String alertMsg = "🚨 GKB SECURITY ALERT!\\n"
-                    "Motion detected in " + zoneName + "!\\n"
-                    "Status: ARMED (" + armedMode + ")\\n"
-                    "Siren: ACTIVE\\n"
-                    "Device: " + deviceKey + "\\n"
-                    "Direct emergency dispatch from GKB IoT Hardware.";
-
-  // 1. Dispatch SMS to Primary Contact
-  if (smsOnAlarm && primaryPhone.length() >= 9) {
-    sendGsmSms(primaryPhone, alertMsg);
-  }
-
-  // 2. Dispatch SMS to Secondary Contact (if provided)
-  if (smsOnAlarm && secondaryPhone.length() >= 9) {
-    delay(600);
-    sendGsmSms(secondaryPhone, alertMsg);
-  }
-
-  // 3. Place Instant Emergency Phone Call to Primary Contact
+  // 1. Place Instant Emergency Phone Call to Primary Contact (CALL-FIRST PRIORITY)
   if (callOnAlarm && primaryPhone.length() >= 9) {
-    delay(800);
+    Serial.printf("📞 [INTRUDER PROTOCOL] Placing instant emergency voice call to %s...\\n", primaryPhone.c_str());
     makeEmergencyCall(primaryPhone);
+  }
+
+  // 2. Dispatch SMS ONLY if smsOnAlarm is enabled (Call-Only mode skips this entirely)
+  if (smsOnAlarm) {
+    String alertMsg = "🚨 GKB SECURITY ALERT!\\n"
+                      "Motion detected in " + zoneName + "!\\n"
+                      "Status: ARMED (" + armedMode + ")\\n"
+                      "Siren: ACTIVE\\n"
+                      "Device: " + deviceKey + "\\n"
+                      "Direct emergency dispatch from GKB IoT Hardware.";
+
+    if (primaryPhone.length() >= 9) {
+      delay(600);
+      sendGsmSms(primaryPhone, alertMsg);
+    }
+
+    if (secondaryPhone.length() >= 9) {
+      delay(600);
+      sendGsmSms(secondaryPhone, alertMsg);
+    }
+  } else {
+    Serial.println("ℹ️ [INTRUDER PROTOCOL] SMS on alarm is DISABLED (Call-Only Mode). No SMS sent.");
   }
 }
 
@@ -1349,7 +1359,7 @@ export default function SmartSecurityDashboard({
   const [gsmLastSmsStatus, setGsmLastSmsStatus] = useState<string>('IDLE');
   const [primaryPhone, setPrimaryPhone] = useState<string>('+233256905290');
   const [secondaryPhone, setSecondaryPhone] = useState<string>('');
-  const [smsOnAlarm, setSmsOnAlarm] = useState<boolean>(true);
+  const [smsOnAlarm, setSmsOnAlarm] = useState<boolean>(false);
   const [callOnAlarm, setCallOnAlarm] = useState<boolean>(true);
   const [smsOnArmDisarm, setSmsOnArmDisarm] = useState<boolean>(false);
 
@@ -1361,7 +1371,7 @@ export default function SmartSecurityDashboard({
       phone: '+233256905290',
       isPrimary: true,
       enableCall: true,
-      enableSms: true
+      enableSms: false
     }
   ]);
   const [contactsDirty, setContactsDirty] = useState<boolean>(false);
@@ -1669,7 +1679,7 @@ export default function SmartSecurityDashboard({
             phone: pPhone,
             isPrimary: true,
             enableCall: true,
-            enableSms: true
+            enableSms: false
           }
         ];
         if (sPhone && sPhone.trim().length > 0) {
@@ -1678,8 +1688,8 @@ export default function SmartSecurityDashboard({
             name: 'Secondary Backup Line',
             phone: sPhone,
             isPrimary: false,
-            enableCall: false,
-            enableSms: true
+            enableCall: true,
+            enableSms: false
           });
         }
         setContacts(initialList);
@@ -1864,8 +1874,8 @@ export default function SmartSecurityDashboard({
       name: `Emergency Contact #${newIndex}`,
       phone: '',
       isPrimary: isFirst,
-      enableCall: isFirst,
-      enableSms: true
+      enableCall: true,
+      enableSms: false
     };
     setContacts(prev => [...prev, newContact]);
     if (isFirst) {
