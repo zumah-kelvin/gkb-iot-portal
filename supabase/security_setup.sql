@@ -29,6 +29,7 @@ ALTER TABLE public.home_security_status
   ADD COLUMN IF NOT EXISTS gsm_last_sms_status TEXT NOT NULL DEFAULT 'IDLE',
   ADD COLUMN IF NOT EXISTS primary_phone TEXT NOT NULL DEFAULT '+233256905290',
   ADD COLUMN IF NOT EXISTS secondary_phone TEXT NOT NULL DEFAULT '',
+  ADD COLUMN IF NOT EXISTS emergency_contacts JSONB DEFAULT '[{"id":"1","name":"Primary Security Line","phone":"+233256905290","isPrimary":true,"enableCall":true,"enableSms":true}]'::jsonb,
   ADD COLUMN IF NOT EXISTS sms_on_alarm BOOLEAN NOT NULL DEFAULT true,
   ADD COLUMN IF NOT EXISTS call_on_alarm BOOLEAN NOT NULL DEFAULT true,
   ADD COLUMN IF NOT EXISTS sms_on_arm_disarm BOOLEAN NOT NULL DEFAULT false,
@@ -56,6 +57,7 @@ INSERT INTO public.home_security_status (
   gsm_last_sms_status,
   primary_phone,
   secondary_phone,
+  emergency_contacts,
   sms_on_alarm,
   call_on_alarm,
   sms_on_arm_disarm
@@ -79,6 +81,7 @@ VALUES (
   'IDLE',
   '+233256905290',
   '',
+  '[{"id":"1","name":"Primary Security Line","phone":"+233256905290","isPrimary":true,"enableCall":true,"enableSms":true}]'::jsonb,
   true,
   true,
   false
@@ -87,6 +90,7 @@ ON CONFLICT (device_id) DO UPDATE SET
   device_key = EXCLUDED.device_key,
   gsm_enabled = COALESCE(public.home_security_status.gsm_enabled, EXCLUDED.gsm_enabled),
   primary_phone = EXCLUDED.primary_phone,
+  emergency_contacts = COALESCE(public.home_security_status.emergency_contacts, EXCLUDED.emergency_contacts),
   sms_on_alarm = COALESCE(public.home_security_status.sms_on_alarm, EXCLUDED.sms_on_alarm),
   call_on_alarm = COALESCE(public.home_security_status.call_on_alarm, EXCLUDED.call_on_alarm);
 
@@ -221,13 +225,16 @@ $$ LANGUAGE plpgsql SECURITY DEFINER;
 GRANT EXECUTE ON FUNCTION public.trigger_security_panic() TO anon, authenticated;
 
 -- 13. RPC: Update Emergency Contacts & GSM Dispatch Rules
+DROP FUNCTION IF EXISTS public.update_security_gsm_settings(TEXT, TEXT, BOOLEAN, BOOLEAN, BOOLEAN, BOOLEAN);
+DROP FUNCTION IF EXISTS public.update_security_gsm_settings(TEXT, TEXT, BOOLEAN, BOOLEAN, BOOLEAN, BOOLEAN, JSONB);
 CREATE OR REPLACE FUNCTION public.update_security_gsm_settings(
   p_primary_phone TEXT,
   p_secondary_phone TEXT,
   p_sms_on_alarm BOOLEAN,
   p_call_on_alarm BOOLEAN,
   p_sms_on_arm_disarm BOOLEAN,
-  p_gsm_enabled BOOLEAN DEFAULT true
+  p_gsm_enabled BOOLEAN DEFAULT true,
+  p_emergency_contacts JSONB DEFAULT NULL
 )
 RETURNS JSON AS $$
 DECLARE
@@ -236,6 +243,7 @@ BEGIN
   UPDATE public.home_security_status
   SET primary_phone = p_primary_phone,
       secondary_phone = p_secondary_phone,
+      emergency_contacts = COALESCE(p_emergency_contacts, emergency_contacts),
       sms_on_alarm = p_sms_on_alarm,
       call_on_alarm = p_call_on_alarm,
       sms_on_arm_disarm = p_sms_on_arm_disarm,
@@ -248,7 +256,7 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
-GRANT EXECUTE ON FUNCTION public.update_security_gsm_settings(TEXT, TEXT, BOOLEAN, BOOLEAN, BOOLEAN, BOOLEAN) TO anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.update_security_gsm_settings(TEXT, TEXT, BOOLEAN, BOOLEAN, BOOLEAN, BOOLEAN, JSONB) TO anon, authenticated;
 
 -- 14. RPC: Request GSM Live Test (SMS or Call)
 CREATE OR REPLACE FUNCTION public.trigger_security_gsm_test(p_test_type TEXT)

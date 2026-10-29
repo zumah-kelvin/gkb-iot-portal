@@ -6,11 +6,20 @@ import {
   ArrowUpRight, Info, Play, Square, Bell, BellOff, Eye, Lock, Unlock,
   SlidersHorizontal, Sparkles, CheckCircle2, Siren, X, AlertOctagon,
   Phone, PhoneCall, PhoneForwarded, MessageSquare, Signal, Smartphone,
-  Send, CheckCheck
+  Send, CheckCheck, UserPlus, Trash2, Plus, Star, RotateCcw
 } from 'lucide-react';
 import { relaySupabase } from './supabase';
 import BleProvisioningModal from './BleProvisioningModal';
 import { createQrSvg } from './qrCodeHelper';
+
+export type EmergencyContact = {
+  id: string;
+  name: string;
+  phone: string;
+  isPrimary: boolean;
+  enableCall: boolean;
+  enableSms: boolean;
+};
 
 export type Device = {
   id: number;
@@ -64,6 +73,7 @@ ALTER TABLE public.home_security_status
   ADD COLUMN IF NOT EXISTS gsm_last_sms_status TEXT NOT NULL DEFAULT 'IDLE',
   ADD COLUMN IF NOT EXISTS primary_phone TEXT NOT NULL DEFAULT '+233256905290',
   ADD COLUMN IF NOT EXISTS secondary_phone TEXT NOT NULL DEFAULT '',
+  ADD COLUMN IF NOT EXISTS emergency_contacts JSONB DEFAULT '[{"id":"1","name":"Primary Security Line","phone":"+233256905290","isPrimary":true,"enableCall":true,"enableSms":true}]'::jsonb,
   ADD COLUMN IF NOT EXISTS sms_on_alarm BOOLEAN NOT NULL DEFAULT true,
   ADD COLUMN IF NOT EXISTS call_on_alarm BOOLEAN NOT NULL DEFAULT true,
   ADD COLUMN IF NOT EXISTS sms_on_arm_disarm BOOLEAN NOT NULL DEFAULT false,
@@ -91,6 +101,7 @@ INSERT INTO public.home_security_status (
   gsm_last_sms_status,
   primary_phone,
   secondary_phone,
+  emergency_contacts,
   sms_on_alarm,
   call_on_alarm,
   sms_on_arm_disarm
@@ -114,6 +125,7 @@ VALUES (
   'IDLE',
   '+233256905290',
   '',
+  '[{"id":"1","name":"Primary Security Line","phone":"+233256905290","isPrimary":true,"enableCall":true,"enableSms":true}]'::jsonb,
   true,
   true,
   false
@@ -122,6 +134,7 @@ ON CONFLICT (device_id) DO UPDATE SET
   device_key = EXCLUDED.device_key,
   gsm_enabled = COALESCE(public.home_security_status.gsm_enabled, EXCLUDED.gsm_enabled),
   primary_phone = EXCLUDED.primary_phone,
+  emergency_contacts = COALESCE(public.home_security_status.emergency_contacts, EXCLUDED.emergency_contacts),
   sms_on_alarm = COALESCE(public.home_security_status.sms_on_alarm, EXCLUDED.sms_on_alarm),
   call_on_alarm = COALESCE(public.home_security_status.call_on_alarm, EXCLUDED.call_on_alarm);
 
@@ -256,13 +269,16 @@ $$ LANGUAGE plpgsql SECURITY DEFINER;
 GRANT EXECUTE ON FUNCTION public.trigger_security_panic() TO anon, authenticated;
 
 -- 13. RPC: Update Emergency Contacts & GSM Dispatch Rules
+DROP FUNCTION IF EXISTS public.update_security_gsm_settings(TEXT, TEXT, BOOLEAN, BOOLEAN, BOOLEAN, BOOLEAN);
+DROP FUNCTION IF EXISTS public.update_security_gsm_settings(TEXT, TEXT, BOOLEAN, BOOLEAN, BOOLEAN, BOOLEAN, JSONB);
 CREATE OR REPLACE FUNCTION public.update_security_gsm_settings(
   p_primary_phone TEXT,
   p_secondary_phone TEXT,
   p_sms_on_alarm BOOLEAN,
   p_call_on_alarm BOOLEAN,
   p_sms_on_arm_disarm BOOLEAN,
-  p_gsm_enabled BOOLEAN DEFAULT true
+  p_gsm_enabled BOOLEAN DEFAULT true,
+  p_emergency_contacts JSONB DEFAULT NULL
 )
 RETURNS JSON AS $$
 DECLARE
@@ -271,6 +287,7 @@ BEGIN
   UPDATE public.home_security_status
   SET primary_phone = p_primary_phone,
       secondary_phone = p_secondary_phone,
+      emergency_contacts = COALESCE(p_emergency_contacts, emergency_contacts),
       sms_on_alarm = p_sms_on_alarm,
       call_on_alarm = p_call_on_alarm,
       sms_on_arm_disarm = p_sms_on_arm_disarm,
@@ -283,7 +300,7 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
-GRANT EXECUTE ON FUNCTION public.update_security_gsm_settings(TEXT, TEXT, BOOLEAN, BOOLEAN, BOOLEAN, BOOLEAN) TO anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.update_security_gsm_settings(TEXT, TEXT, BOOLEAN, BOOLEAN, BOOLEAN, BOOLEAN, JSONB) TO anon, authenticated;
 
 -- 14. RPC: Request GSM Live Test (SMS or Call)
 CREATE OR REPLACE FUNCTION public.trigger_security_gsm_test(p_test_type TEXT)
@@ -1336,6 +1353,25 @@ export default function SmartSecurityDashboard({
   const [callOnAlarm, setCallOnAlarm] = useState<boolean>(true);
   const [smsOnArmDisarm, setSmsOnArmDisarm] = useState<boolean>(false);
 
+  // Dynamic Emergency Contacts Directory State & Dirty-Editing Guard
+  const [contacts, setContacts] = useState<EmergencyContact[]>([
+    {
+      id: 'contact-1',
+      name: 'Primary Security Contact',
+      phone: '+233256905290',
+      isPrimary: true,
+      enableCall: true,
+      enableSms: true
+    }
+  ]);
+  const [contactsDirty, setContactsDirty] = useState<boolean>(false);
+  const contactsDirtyRef = useRef<boolean>(false);
+
+  const markContactsDirty = (dirty: boolean) => {
+    contactsDirtyRef.current = dirty;
+    setContactsDirty(dirty);
+  };
+
   // GSM Interaction State
   const [savingContacts, setSavingContacts] = useState(false);
   const [contactsNotice, setContactsNotice] = useState('');
@@ -1609,11 +1645,46 @@ export default function SmartSecurityDashboard({
     if (row.gsm_sim_status) setGsmSimStatus(row.gsm_sim_status);
     if (row.gsm_call_state) setGsmCallState(row.gsm_call_state);
     if (row.gsm_last_sms_status) setGsmLastSmsStatus(row.gsm_last_sms_status);
-    if (row.primary_phone) setPrimaryPhone(row.primary_phone);
-    if (row.secondary_phone !== undefined && row.secondary_phone !== null) setSecondaryPhone(row.secondary_phone);
     if (row.sms_on_alarm !== undefined) setSmsOnAlarm(Boolean(row.sms_on_alarm));
     if (row.call_on_alarm !== undefined) setCallOnAlarm(Boolean(row.call_on_alarm));
     if (row.sms_on_arm_disarm !== undefined) setSmsOnArmDisarm(Boolean(row.sms_on_arm_disarm));
+
+    // CRITICAL: Synchronize Emergency Contacts ONLY if user is not actively editing
+    if (!contactsDirtyRef.current) {
+      if (Array.isArray(row.emergency_contacts) && row.emergency_contacts.length > 0) {
+        setContacts(row.emergency_contacts);
+        const prim = row.emergency_contacts.find((c: any) => c.isPrimary) || row.emergency_contacts[0];
+        if (prim?.phone) setPrimaryPhone(prim.phone);
+        const sec = row.emergency_contacts.find((c: any) => !c.isPrimary && c.phone);
+        setSecondaryPhone(sec ? sec.phone : '');
+      } else {
+        const pPhone = row.primary_phone || '+233256905290';
+        const sPhone = row.secondary_phone || '';
+        setPrimaryPhone(pPhone);
+        setSecondaryPhone(sPhone);
+        const initialList: EmergencyContact[] = [
+          {
+            id: 'contact-1',
+            name: 'Primary Security Contact',
+            phone: pPhone,
+            isPrimary: true,
+            enableCall: true,
+            enableSms: true
+          }
+        ];
+        if (sPhone && sPhone.trim().length > 0) {
+          initialList.push({
+            id: 'contact-2',
+            name: 'Secondary Backup Line',
+            phone: sPhone,
+            isPrimary: false,
+            enableCall: false,
+            enableSms: true
+          });
+        }
+        setContacts(initialList);
+      }
+    }
 
     // Update zone 1 status according to motion_detected
     setZones(prev => prev.map(z => z.id === 'zone-1' ? {
@@ -1782,24 +1853,117 @@ export default function SmartSecurityDashboard({
     });
   };
 
+  // Emergency Contact Directory Handlers
+  const handleAddContact = () => {
+    markContactsDirty(true);
+    const newId = 'contact-' + Date.now();
+    const newIndex = contacts.length + 1;
+    const isFirst = contacts.length === 0;
+    const newContact: EmergencyContact = {
+      id: newId,
+      name: `Emergency Contact #${newIndex}`,
+      phone: '',
+      isPrimary: isFirst,
+      enableCall: isFirst,
+      enableSms: true
+    };
+    setContacts(prev => [...prev, newContact]);
+    if (isFirst) {
+      setPrimaryPhone('');
+    }
+  };
+
+  const handleRemoveContact = (id: string) => {
+    if (contacts.length <= 1) {
+      alert('You must have at least one emergency contact configured for GSM security dispatch.');
+      return;
+    }
+    markContactsDirty(true);
+    setContacts(prev => {
+      const target = prev.find(c => c.id === id);
+      const remaining = prev.filter(c => c.id !== id);
+      let updated = remaining;
+      if (target?.isPrimary && remaining.length > 0) {
+        updated = remaining.map((c, idx) => idx === 0 ? { ...c, isPrimary: true, enableCall: true } : c);
+      }
+      const prim = updated.find(c => c.isPrimary) || updated[0];
+      if (prim) setPrimaryPhone(prim.phone);
+      const sec = updated.find(c => !c.isPrimary && c.phone);
+      setSecondaryPhone(sec ? sec.phone : '');
+      return updated;
+    });
+  };
+
+  const handleSetPrimary = (id: string) => {
+    markContactsDirty(true);
+    setContacts(prev => {
+      const updated = prev.map(c => ({
+        ...c,
+        isPrimary: c.id === id,
+        enableCall: c.id === id ? true : c.enableCall
+      }));
+      const prim = updated.find(c => c.id === id);
+      if (prim) setPrimaryPhone(prim.phone);
+      const sec = updated.find(c => c.id !== id && c.phone);
+      setSecondaryPhone(sec ? sec.phone : '');
+      return updated;
+    });
+  };
+
+  const handleUpdateContact = (id: string, updates: Partial<EmergencyContact>) => {
+    markContactsDirty(true);
+    setContacts(prev => {
+      const updated = prev.map(c => c.id === id ? { ...c, ...updates } : c);
+      const prim = updated.find(c => c.isPrimary);
+      if (prim && updates.phone !== undefined) {
+        setPrimaryPhone(prim.phone);
+      }
+      return updated;
+    });
+  };
+
+  const handleDiscardContacts = () => {
+    markContactsDirty(false);
+    fetchSecurityStatus();
+  };
+
   // Save GSM Emergency Contacts & Settings
   const handleSaveContacts = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
+    if (contacts.length === 0) {
+      setContactsNotice('⚠️ Please add at least one emergency contact.');
+      return;
+    }
+
+    const primary = contacts.find(c => c.isPrimary) || contacts[0];
+    if (!primary.phone || primary.phone.trim().length < 5) {
+      setContactsNotice('⚠️ Primary Emergency Contact must have a valid phone number (at least 5 digits).');
+      return;
+    }
+
+    const secondary = contacts.find(c => !c.isPrimary && c.phone && c.phone.trim().length >= 5);
+    const pPhone = primary.phone.trim();
+    const sPhone = secondary ? secondary.phone.trim() : '';
+
     setSavingContacts(true);
     setContactsNotice('');
     try {
       await patchCloud({
-        primary_phone: primaryPhone.trim(),
-        secondary_phone: secondaryPhone.trim(),
+        primary_phone: pPhone,
+        secondary_phone: sPhone,
+        emergency_contacts: contacts,
         sms_on_alarm: smsOnAlarm,
         call_on_alarm: callOnAlarm,
         sms_on_arm_disarm: smsOnArmDisarm,
         gsm_enabled: gsmEnabled
       });
-      setContactsNotice('✅ Emergency contacts and GSM dispatch rules updated successfully.');
-      setTimeout(() => setContactsNotice(''), 4000);
+      setPrimaryPhone(pPhone);
+      setSecondaryPhone(sPhone);
+      markContactsDirty(false);
+      setContactsNotice(`✅ Saved ${contacts.length} emergency contacts! Primary contact (${pPhone}) synced to ESP32 SIM800L.`);
+      setTimeout(() => setContactsNotice(''), 6000);
     } catch {
-      setContactsNotice('❌ Failed to save contacts. Check connection.');
+      setContactsNotice('❌ Failed to save contacts to Supabase. Check connection.');
     } finally {
       setSavingContacts(false);
     }
@@ -1807,13 +1971,17 @@ export default function SmartSecurityDashboard({
 
   // Trigger Live Test SMS
   const handleTestSms = async () => {
-    if (!primaryPhone) return;
+    const targetPhone = primaryPhone || contacts.find(c => c.isPrimary)?.phone || '';
+    if (!targetPhone) {
+      setContactsNotice('⚠️ No primary phone number available to test.');
+      return;
+    }
     setTestSmsBusy(true);
     setAlerts(prev => [{
       id: `${Date.now()}`,
       timestamp: new Date().toLocaleTimeString(),
       title: '🧪 Cellular Test SMS Requested',
-      detail: `Dispatching test SMS to primary contact (${primaryPhone}) via ESP32 SIM800L.`,
+      detail: `Dispatching test SMS to primary contact (${targetPhone}) via ESP32 SIM800L.`,
       severity: 'info'
     }, ...prev.slice(0, 9)]);
 
@@ -1825,13 +1993,17 @@ export default function SmartSecurityDashboard({
 
   // Trigger Live Test Call
   const handleTestCall = async () => {
-    if (!primaryPhone) return;
+    const targetPhone = primaryPhone || contacts.find(c => c.isPrimary)?.phone || '';
+    if (!targetPhone) {
+      setContactsNotice('⚠️ No primary phone number available to test.');
+      return;
+    }
     setTestCallBusy(true);
     setAlerts(prev => [{
       id: `${Date.now()}`,
       timestamp: new Date().toLocaleTimeString(),
       title: '📞 Emergency Auto-Dial Call Test',
-      detail: `ESP32 placing 25-second test ring to ${primaryPhone} via SIM800L UART.`,
+      detail: `ESP32 placing 25-second test ring to ${targetPhone} via SIM800L UART.`,
       severity: 'info'
     }, ...prev.slice(0, 9)]);
 
@@ -2250,47 +2422,183 @@ export default function SmartSecurityDashboard({
           </div>
         </div>
 
-        {/* Emergency Contacts & Automated Dispatch Rules */}
-        <form onSubmit={handleSaveContacts} className="space-y-4">
-          <div className="grid gap-4 sm:grid-cols-2">
+        {/* Emergency Contacts Directory & Automated Dispatch Rules */}
+        <form onSubmit={handleSaveContacts} className="space-y-5">
+          {/* Section Header with Add Contact & Dirty State */}
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-800 pb-3">
             <div>
-              <label className="block text-xs font-bold text-slate-300 uppercase tracking-wider mb-1.5">
-                Primary Emergency Contact Number (Auto-Dial + SMS) *
-              </label>
-              <div className="relative">
-                <Phone className="absolute left-3.5 top-3 h-4 w-4 text-cyan-400" />
-                <input
-                  type="tel"
-                  value={primaryPhone}
-                  onChange={e => setPrimaryPhone(e.target.value)}
-                  required
-                  placeholder="e.g. 0552117787 or +233552117787"
-                  className="w-full rounded-xl border border-slate-700 bg-slate-950 pl-10 pr-3.5 py-2.5 text-xs text-white font-mono focus:border-cyan-400 focus:outline-none"
-                />
+              <div className="flex items-center gap-2">
+                <h4 className="text-sm font-bold text-white uppercase tracking-wider flex items-center gap-2">
+                  <Phone className="h-4 w-4 text-cyan-400" />
+                  Emergency Contacts Directory
+                </h4>
+                <span className="rounded-full bg-slate-800 px-2 py-0.5 text-[10px] font-mono text-cyan-300">
+                  {contacts.length} {contacts.length === 1 ? 'Contact' : 'Contacts'}
+                </span>
               </div>
-              <p className="text-[10px] text-slate-400 mt-1">
-                ESP32 places an instant emergency voice call so your phone rings loudly, and sends an SMS alert with zone & time.
+              <p className="text-xs text-slate-400 mt-0.5">
+                Manage all verified contacts. The designated Primary contact is instantly dialed and texted by the ESP32 SIM800L on intrusion.
               </p>
             </div>
 
-            <div>
-              <label className="block text-xs font-bold text-slate-300 uppercase tracking-wider mb-1.5">
-                Secondary Alert Number (Backup SMS)
-              </label>
-              <div className="relative">
-                <Smartphone className="absolute left-3.5 top-3 h-4 w-4 text-purple-400" />
-                <input
-                  type="tel"
-                  value={secondaryPhone}
-                  onChange={e => setSecondaryPhone(e.target.value)}
-                  placeholder="Optional backup line, spouse, or neighbor"
-                  className="w-full rounded-xl border border-slate-700 bg-slate-950 pl-10 pr-3.5 py-2.5 text-xs text-white font-mono focus:border-purple-400 focus:outline-none"
-                />
-              </div>
-              <p className="text-[10px] text-slate-400 mt-1">
-                Receives a duplicate SMS alert upon intrusion detection.
-              </p>
+            <div className="flex items-center gap-2">
+              {contactsDirty && (
+                <div className="flex items-center gap-1.5">
+                  <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[10px] font-bold uppercase tracking-wider bg-amber-500/15 text-amber-300 border border-amber-500/30 animate-pulse">
+                    <Sparkles className="h-3 w-3 text-amber-400" /> Unsaved Changes
+                  </span>
+                  <button
+                    type="button"
+                    onClick={handleDiscardContacts}
+                    title="Discard changes and revert to database"
+                    className="inline-flex items-center gap-1 rounded-lg border border-slate-700 bg-slate-800/80 px-2.5 py-1 text-[10px] font-bold text-slate-300 hover:text-white hover:bg-slate-700 transition-all cursor-pointer"
+                  >
+                    <RotateCcw className="h-3 w-3" /> Revert
+                  </button>
+                </div>
+              )}
+
+              <button
+                type="button"
+                onClick={handleAddContact}
+                className="inline-flex items-center gap-1.5 rounded-xl border border-cyan-500/40 bg-cyan-500/15 px-3 py-1.5 text-xs font-bold text-cyan-300 hover:bg-cyan-500/25 transition-all cursor-pointer"
+              >
+                <UserPlus className="h-3.5 w-3.5" />
+                Add Contact
+              </button>
             </div>
+          </div>
+
+          {/* Dynamic Contact Cards List */}
+          <div className="space-y-3">
+            {contacts.map((contact, index) => {
+              const isPrimary = contact.isPrimary;
+              return (
+                <div
+                  key={contact.id}
+                  className={`relative rounded-2xl border p-4 transition-all ${
+                    isPrimary
+                      ? 'border-amber-500/50 bg-gradient-to-r from-amber-950/25 via-slate-900/70 to-slate-950 shadow-lg shadow-amber-500/5'
+                      : 'border-slate-800 bg-slate-950/60 hover:border-slate-700'
+                  }`}
+                >
+                  <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
+                    <div className="flex items-center gap-2">
+                      <span className={`inline-flex items-center justify-center h-5 w-5 rounded-full text-[11px] font-bold ${
+                        isPrimary ? 'bg-amber-500 text-black' : 'bg-slate-800 text-slate-400'
+                      }`}>
+                        {index + 1}
+                      </span>
+                      <span className="text-xs font-bold text-white uppercase tracking-wider flex items-center gap-1.5">
+                        {isPrimary ? (
+                          <>
+                            <Star className="h-3.5 w-3.5 text-amber-400 fill-amber-400" />
+                            Primary Emergency Contact
+                          </>
+                        ) : (
+                          `Emergency Contact #${index + 1}`
+                        )}
+                      </span>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      {isPrimary ? (
+                        <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider bg-amber-500/20 text-amber-300 border border-amber-500/40">
+                          Active Primary (Auto-Dial + SMS)
+                        </span>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => handleSetPrimary(contact.id)}
+                          className="inline-flex items-center gap-1 rounded-lg border border-slate-700 bg-slate-800/80 px-2.5 py-1 text-[10px] font-bold text-slate-300 hover:text-amber-300 hover:border-amber-500/40 hover:bg-amber-500/10 transition-all cursor-pointer"
+                        >
+                          <Star className="h-3 w-3" /> Set as Primary
+                        </button>
+                      )}
+
+                      {contacts.length > 1 && (
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveContact(contact.id)}
+                          title="Remove this emergency contact"
+                          className="rounded-lg p-1.5 text-slate-400 hover:text-red-400 hover:bg-red-500/10 border border-transparent hover:border-red-500/30 transition-all cursor-pointer"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <div>
+                      <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1">
+                        Contact Name / Relationship
+                      </label>
+                      <input
+                        type="text"
+                        value={contact.name}
+                        onChange={e => handleUpdateContact(contact.id, { name: e.target.value })}
+                        placeholder="e.g. Home Owner, Spouse, Neighborhood Security"
+                        className="w-full rounded-xl border border-slate-800 bg-slate-900/90 px-3 py-2 text-xs text-white focus:border-cyan-400 focus:outline-none"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1">
+                        Phone Number {isPrimary && <span className="text-amber-400">*</span>}
+                      </label>
+                      <div className="relative">
+                        <Phone className={`absolute left-3 top-2.5 h-3.5 w-3.5 ${isPrimary ? 'text-amber-400' : 'text-slate-400'}`} />
+                        <input
+                          type="tel"
+                          value={contact.phone}
+                          onChange={e => handleUpdateContact(contact.id, { phone: e.target.value })}
+                          required={isPrimary}
+                          placeholder="e.g. 0552117787 or +233256905290"
+                          className={`w-full rounded-xl border bg-slate-900/90 pl-9 pr-3 py-2 text-xs font-mono text-white focus:outline-none ${
+                            isPrimary ? 'border-amber-500/40 focus:border-amber-400' : 'border-slate-800 focus:border-cyan-400'
+                          }`}
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="mt-3 pt-2.5 border-t border-slate-800/80 flex flex-wrap items-center justify-between gap-3 text-xs text-slate-400">
+                    <div className="flex items-center gap-4">
+                      <label className="inline-flex items-center gap-1.5 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={contact.enableCall}
+                          onChange={e => handleUpdateContact(contact.id, { enableCall: e.target.checked })}
+                          className="rounded border-slate-700 text-amber-500 focus:ring-0"
+                        />
+                        <span className="flex items-center gap-1 text-slate-300 text-xs">
+                          <PhoneCall className="h-3.5 w-3.5 text-emerald-400" /> Voice Call Alert
+                        </span>
+                      </label>
+
+                      <label className="inline-flex items-center gap-1.5 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={contact.enableSms}
+                          onChange={e => handleUpdateContact(contact.id, { enableSms: e.target.checked })}
+                          className="rounded border-slate-700 text-amber-500 focus:ring-0"
+                        />
+                        <span className="flex items-center gap-1 text-slate-300 text-xs">
+                          <MessageSquare className="h-3.5 w-3.5 text-amber-400" /> SMS Text Alert
+                        </span>
+                      </label>
+                    </div>
+
+                    {isPrimary && (
+                      <span className="text-[10px] text-amber-300/80 font-mono">
+                        ⚡ Direct dial target for GSM SIM800L hardware
+                      </span>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
           </div>
 
           {/* Dispatch Automation Toggles */}
@@ -2353,7 +2661,11 @@ export default function SmartSecurityDashboard({
               <button
                 type="submit"
                 disabled={savingContacts}
-                className="inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 px-5 py-2.5 text-xs font-bold uppercase tracking-wider text-black shadow-lg shadow-amber-500/20 hover:opacity-90 transition-all cursor-pointer disabled:opacity-50"
+                className={`inline-flex items-center gap-2 rounded-xl px-5 py-2.5 text-xs font-bold uppercase tracking-wider text-black shadow-lg transition-all cursor-pointer disabled:opacity-50 ${
+                  contactsDirty
+                    ? 'bg-gradient-to-r from-amber-400 to-orange-400 shadow-amber-500/30 ring-2 ring-amber-400/50 animate-pulse'
+                    : 'bg-gradient-to-r from-amber-500 to-orange-500 shadow-amber-500/20 hover:opacity-90'
+                }`}
               >
                 {savingContacts ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <CheckCheck className="h-4 w-4" />}
                 {savingContacts ? 'Saving Contacts...' : 'Save Emergency Contacts'}
