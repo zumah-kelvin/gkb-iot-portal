@@ -29,8 +29,8 @@ ALTER TABLE public.home_security_status
   ADD COLUMN IF NOT EXISTS gsm_last_sms_status TEXT NOT NULL DEFAULT 'IDLE',
   ADD COLUMN IF NOT EXISTS primary_phone TEXT NOT NULL DEFAULT '+233256905290',
   ADD COLUMN IF NOT EXISTS secondary_phone TEXT NOT NULL DEFAULT '',
-  ADD COLUMN IF NOT EXISTS emergency_contacts JSONB DEFAULT '[{"id":"1","name":"Primary Security Line","phone":"+233256905290","isPrimary":true,"enableCall":true,"enableSms":false}]'::jsonb,
-  ADD COLUMN IF NOT EXISTS sms_on_alarm BOOLEAN NOT NULL DEFAULT false,
+  ADD COLUMN IF NOT EXISTS emergency_contacts JSONB DEFAULT '[{"id":"1","name":"Primary Security Line","phone":"+233256905290","isPrimary":true,"enableCall":true,"enableSms":true}]'::jsonb,
+  ADD COLUMN IF NOT EXISTS sms_on_alarm BOOLEAN NOT NULL DEFAULT true,
   ADD COLUMN IF NOT EXISTS call_on_alarm BOOLEAN NOT NULL DEFAULT true,
   ADD COLUMN IF NOT EXISTS sms_on_arm_disarm BOOLEAN NOT NULL DEFAULT false,
   ADD COLUMN IF NOT EXISTS last_sms_sent_at TIMESTAMPTZ,
@@ -81,8 +81,8 @@ VALUES (
   'IDLE',
   '+233256905290',
   '',
-  '[{"id":"1","name":"Primary Security Line","phone":"+233256905290","isPrimary":true,"enableCall":true,"enableSms":false}]'::jsonb,
-  false,
+  '[{"id":"1","name":"Primary Security Line","phone":"+233256905290","isPrimary":true,"enableCall":true,"enableSms":true}]'::jsonb,
+  true,
   true,
   false
 )
@@ -91,14 +91,8 @@ ON CONFLICT (device_id) DO UPDATE SET
   gsm_enabled = COALESCE(public.home_security_status.gsm_enabled, EXCLUDED.gsm_enabled),
   primary_phone = EXCLUDED.primary_phone,
   emergency_contacts = COALESCE(public.home_security_status.emergency_contacts, EXCLUDED.emergency_contacts),
-  sms_on_alarm = false,
-  call_on_alarm = true;
-
--- Ensure device security_01 operates in Call-Only mode
-UPDATE public.home_security_status
-SET sms_on_alarm = false,
-    call_on_alarm = true
-WHERE device_id = 'security_01';
+  sms_on_alarm = COALESCE(public.home_security_status.sms_on_alarm, EXCLUDED.sms_on_alarm),
+  call_on_alarm = COALESCE(public.home_security_status.call_on_alarm, EXCLUDED.call_on_alarm);
 
 -- 4. Enable Row-Level Security (RLS)
 ALTER TABLE public.home_security_status ENABLE ROW LEVEL SECURITY;
