@@ -522,18 +522,8 @@ void initGsmModule() {
 
   sendAtCommand("ATE0", 800); // Echo off
 
-  // SIM Presence & Pin Status
-  String pinResp = sendAtCommand("AT+CPIN?", 2000);
-  if (pinResp.indexOf("READY") != -1) {
-    gsmSimStatus = "READY";
-    Serial.println("✅ [GSM] SIM Card Detected: READY");
-  } else if (pinResp.indexOf("SIM PIN") != -1) {
-    gsmSimStatus = "PIN_REQUIRED";
-    Serial.println("⚠️ [GSM] SIM Card requires PIN unlock.");
-  } else {
-    gsmSimStatus = "NO_SIM";
-    Serial.println("❌ [GSM] No SIM Card detected or inserted!");
-  }
+  // SIM Presence & Pin Status Auto-Detection
+  checkGsmSimStatus(false);
 
   // Text Mode for SMS
   sendAtCommand("AT+CMGF=1", 1000);
@@ -543,7 +533,37 @@ void initGsmModule() {
 
   // Initial Telemetry Query
   updateGsmSignal();
-  updateGsmOperator();
+  if (gsmSimStatus == "READY") {
+    updateGsmOperator();
+  }
+}
+
+bool checkGsmSimStatus(bool silent) {
+  String pinResp = sendAtCommand("AT+CPIN?", 1500);
+  String oldStatus = gsmSimStatus;
+  if (pinResp.indexOf("READY") != -1) {
+    gsmSimStatus = "READY";
+    if (oldStatus != "READY" || !silent) {
+      Serial.println("✅ [GSM] SIM Card Detected: READY (Cellular network registration active)");
+      sendAtCommand("AT+CMGF=1", 1000);
+      sendAtCommand("AT+CNMI=1,2,0,0,0", 1000);
+      updateGsmOperator();
+    }
+    return true;
+  } else if (pinResp.indexOf("SIM PIN") != -1) {
+    gsmSimStatus = "PIN_REQUIRED";
+    if (oldStatus != "PIN_REQUIRED" || !silent) {
+      Serial.println("⚠️ [GSM] SIM Card requires PIN unlock. Please disable SIM PIN using a phone.");
+    }
+    return false;
+  } else {
+    gsmSimStatus = "NO_SIM";
+    if (!silent) {
+      Serial.println("❌ [GSM] No SIM Card detected or inserted (+CPIN: NOT INSERTED)!");
+      Serial.println("💡 [GSM TIP] Verify Micro-SIM orientation (gold contacts facing PCB, notch aligned) and press/slide metal tray firmly to 'LOCK'.");
+    }
+    return false;
+  }
 }
 
 void updateGsmSignal() {
@@ -577,6 +597,17 @@ void updateGsmOperator() {
 bool sendGsmSms(const String& recipient, const String& message) {
   if (recipient.length() < 9) {
     Serial.printf("⚠️ [GSM SMS] Aborted. Recipient number too short: '%s'\\n", recipient.c_str());
+    return false;
+  }
+
+  // Auto-probe SIM card if not currently flagged ready
+  if (gsmSimStatus != "READY") {
+    checkGsmSimStatus(true);
+  }
+
+  if (gsmSimStatus != "READY") {
+    Serial.printf("❌ [GSM SMS] Cannot send SMS: SIM card not ready (Status: %s). Check SIM tray lock & orientation.\\n", gsmSimStatus.c_str());
+    gsmLastSmsStatus = "NO_SIM";
     return false;
   }
 
@@ -638,6 +669,16 @@ bool sendGsmSms(const String& recipient, const String& message) {
 
 void makeEmergencyCall(const String& recipient) {
   if (recipient.length() < 9) return;
+
+  if (gsmSimStatus != "READY") {
+    checkGsmSimStatus(true);
+  }
+
+  if (gsmSimStatus != "READY") {
+    Serial.printf("❌ [GSM CALL] Cannot place call: SIM card not ready (Status: %s). Check SIM tray lock & orientation.\\n", gsmSimStatus.c_str());
+    gsmCallState = "NO_SIM";
+    return;
+  }
 
   Serial.printf("📞 [GSM CALL] Placing emergency voice call to [%s]...\\n", recipient.c_str());
   gsmCallState = "DIALING";
@@ -1113,10 +1154,15 @@ void loop() {
   // Listen for incoming SMS commands from homeowner phone
   processIncomingGsmData();
 
-  // Periodic GSM signal & network operator refresh
+  // Periodic GSM signal & dynamic SIM presence refresh
   if (millis() - lastGsmPollTime >= GSM_POLL_INTERVAL_MS) {
     lastGsmPollTime = millis();
     updateGsmSignal();
+    if (gsmSimStatus != "READY") {
+      checkGsmSimStatus(true); // Auto-detect SIM insertion without reboot
+    } else if (gsmNetworkOperator == "SEARCHING" || gsmNetworkOperator.length() == 0) {
+      updateGsmOperator();
+    }
   }
 
   // ================= 100MS PIR SENSOR SAMPLING & TRIP LOGIC =================
