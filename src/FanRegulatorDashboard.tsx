@@ -87,16 +87,25 @@ export function generateFanArduinoCode(deviceKey: string = 'GKB-FAN-0001'): stri
  * =========================================================================================
  * Target Board       : ESP32 Dev Module / NodeMCU-32S / ESP-WROOM-32
  * Device Token Model : Hardware Casing QR Token (Default: ${deviceKey})
- * Output Channels    :
- *   - Speed Relay 1   : GPIO 23 (1.5uF Capacitor - Low Speed)
- *   - Speed Relay 2   : GPIO 22 (2.5uF Capacitor - Med-Low Speed)
- *   - Speed Relay 3   : GPIO 21 (3.5uF Capacitor - Med-High Speed)
- *   - Speed Relay 4   : GPIO 19 (Direct AC Bypass - High Speed)
- *   - Oscillation     : GPIO 18 (Swing Motor Relay)
- *   - DHT22 Temp/Hum  : GPIO 4  (Environmental Telemetry)
- *   - Feedback Buzzer : GPIO 5  (Speed change chime)
- *   - Diagnostic LED  : GPIO 2  (Onboard Blue LED)
- *   - Factory Reset   : GPIO 0  (Onboard BOOT Button - Hold 5s to clear Wi-Fi)
+ * Hardware Actuation : CBB61 5-Wire Fan Capacitor + 4/5-Channel Active-HIGH Relay Module
+ * AC Motor Target    : Orient AC Ceiling / Standing Fan (230V 50Hz)
+ *
+ * CBB61 5-WIRE PINOUT & RELAY WIRING SCHEMATIC:
+ *   - AC Mains Neutral (Blue/Black)  -> Directly to Orient Fan Neutral Wire
+ *   - AC Mains Live (Brown/Red)      -> Relay COM terminals (Daisy-chained across all relays)
+ *   - Relay 1 NO (GPIO 23)           -> CBB61 Tap 1 (Lowest uF, e.g. 1.5uF - Yellow)  -> Speed 1 (Low)
+ *   - Relay 2 NO (GPIO 22)           -> CBB61 Tap 2 (Med uF, e.g. 2.2uF - Gray/Green)  -> Speed 2 (Med-Low)
+ *   - Relay 3 NO (GPIO 21)           -> CBB61 Tap 3 (Higher uF, e.g. 3.0uF - Blue)     -> Speed 3 (Med-High)
+ *   - Relay 4 NO (GPIO 19)           -> Directly to Orient Fan Live Terminal           -> Speed 4/5 (Full 230V)
+ *   - CBB61 Common Wire (Red/Black)  -> Directly to Orient Fan Live Terminal
+ *   - Relay 5 NO (GPIO 18, Optional) -> Oscillation Synchronous Motor
+ *   - DHT22 Temp/Humidity            -> GPIO 4 (Environmental Telemetry)
+ *   - Feedback Buzzer                -> GPIO 5 (Piezo Chime on speed switch)
+ *   - Status Blue LED                -> GPIO 2 (Wi-Fi/BLE Status)
+ *   - Factory Reset Button           -> GPIO 0 (BOOT button, hold 5s to clear Wi-Fi)
+ *
+ * NOTE: Orient AC fans have an internal starting capacitor (2.25uF) in the canopy.
+ * DO NOT remove the internal start capacitor. The CBB61 acts as the external line regulator!
  *
  * Cloud Backend      : Supabase public.fan_regulator_status (Target: fan_01)
  * REST Endpoint      : https://ditnksmvcacnzdguqcgz.supabase.co/rest/v1/fan_regulator_status?device_id=eq.fan_01
@@ -183,10 +192,18 @@ void applyFanRelays(bool power, int speed, bool osc) {
   }
 
   // Interlocked capacitor switching (break-before-make)
-  digitalWrite(PIN_RELAY_1, speed == 1 ? HIGH : LOW);
-  digitalWrite(PIN_RELAY_2, speed == 2 ? HIGH : LOW);
-  digitalWrite(PIN_RELAY_3, (speed == 3 || speed == 5) ? HIGH : LOW);
-  digitalWrite(PIN_RELAY_4, speed >= 4 ? HIGH : LOW);
+  // 1. Break: De-energize all taps first to prevent arc bridging across CBB61 taps
+  digitalWrite(PIN_RELAY_1, LOW);
+  digitalWrite(PIN_RELAY_2, LOW);
+  digitalWrite(PIN_RELAY_3, LOW);
+  digitalWrite(PIN_RELAY_4, LOW);
+  delay(20); // 20ms safe mechanical air gap
+
+  // 2. Make: Energize only the selected CBB61 capacitor tap or direct mains bypass
+  if (speed == 1) digitalWrite(PIN_RELAY_1, HIGH);      // CBB61 Tap 1 (Lowest speed, e.g. 1.5uF)
+  else if (speed == 2) digitalWrite(PIN_RELAY_2, HIGH); // CBB61 Tap 2 (Med-low, e.g. 2.2uF)
+  else if (speed == 3) digitalWrite(PIN_RELAY_3, HIGH); // CBB61 Tap 3 (Med-high, e.g. 3.0uF)
+  else if (speed >= 4) digitalWrite(PIN_RELAY_4, HIGH); // Direct 230V Mains Bypass (Full speed)
   digitalWrite(PIN_RELAY_OSC, osc ? HIGH : LOW);
 
   // Beep on speed change
