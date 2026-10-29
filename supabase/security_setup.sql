@@ -6,7 +6,7 @@
 -- 1. Create the home_security_status table (if not exists)
 CREATE TABLE IF NOT EXISTS public.home_security_status (
   device_id TEXT PRIMARY KEY DEFAULT 'security_01',
-  device_key TEXT NOT NULL DEFAULT 'GKBSEC-00106',
+  device_key TEXT NOT NULL DEFAULT 'GKB-SEC-0001',
   armed_mode TEXT NOT NULL DEFAULT 'away' CHECK (armed_mode IN ('away', 'stay', 'disarmed')),
   alarm_state TEXT NOT NULL DEFAULT 'IDLE' CHECK (alarm_state IN ('IDLE', 'TRIPPED', 'MUTED')),
   motion_detected BOOLEAN NOT NULL DEFAULT false,
@@ -62,7 +62,7 @@ INSERT INTO public.home_security_status (
 )
 VALUES (
   'security_01',
-  'GKBSEC-00106',
+  'GKB-SEC-0001',
   'away',
   'IDLE',
   false,
@@ -84,6 +84,7 @@ VALUES (
   false
 )
 ON CONFLICT (device_id) DO UPDATE SET
+  device_key = EXCLUDED.device_key,
   gsm_enabled = COALESCE(public.home_security_status.gsm_enabled, EXCLUDED.gsm_enabled),
   primary_phone = COALESCE(NULLIF(public.home_security_status.primary_phone, ''), EXCLUDED.primary_phone),
   sms_on_alarm = COALESCE(public.home_security_status.sms_on_alarm, EXCLUDED.sms_on_alarm),

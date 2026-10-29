@@ -41,7 +41,7 @@ const SQL_SECURITY_SETUP_SCRIPT = `-- ==========================================
 -- 1. Create the home_security_status table (if not exists)
 CREATE TABLE IF NOT EXISTS public.home_security_status (
   device_id TEXT PRIMARY KEY DEFAULT 'security_01',
-  device_key TEXT NOT NULL DEFAULT 'GKBSEC-00106',
+  device_key TEXT NOT NULL DEFAULT 'GKB-SEC-0001',
   armed_mode TEXT NOT NULL DEFAULT 'away' CHECK (armed_mode IN ('away', 'stay', 'disarmed')),
   alarm_state TEXT NOT NULL DEFAULT 'IDLE' CHECK (alarm_state IN ('IDLE', 'TRIPPED', 'MUTED')),
   motion_detected BOOLEAN NOT NULL DEFAULT false,
@@ -97,7 +97,7 @@ INSERT INTO public.home_security_status (
 )
 VALUES (
   'security_01',
-  'GKBSEC-00106',
+  'GKB-SEC-0001',
   'away',
   'IDLE',
   false,
@@ -119,6 +119,7 @@ VALUES (
   false
 )
 ON CONFLICT (device_id) DO UPDATE SET
+  device_key = EXCLUDED.device_key,
   gsm_enabled = COALESCE(public.home_security_status.gsm_enabled, EXCLUDED.gsm_enabled),
   primary_phone = COALESCE(NULLIF(public.home_security_status.primary_phone, ''), EXCLUDED.primary_phone),
   sms_on_alarm = COALESCE(public.home_security_status.sms_on_alarm, EXCLUDED.sms_on_alarm),
@@ -308,14 +309,14 @@ GRANT EXECUTE ON FUNCTION public.trigger_security_gsm_test(TEXT) TO anon, authen
 
 `;
 
-export function generateSecurityArduinoCode(deviceKey: string = 'GKBSEC-00106'): string {
+export function generateSecurityArduinoCode(deviceKey: string = 'GKB-SEC-0001'): string {
   return `/*
  * =========================================================================================
  * GKB TECHNOLOGIES — ESP32 SMART HOME SECURITY SYSTEM v1 (PIR + SIREN + BUZZER + GSM SIM800L)
  * Dual-Mode: Web Bluetooth (BLE 4.2 GATT) Provisioning + 2.4GHz Wi-Fi + GSM Cellular Dispatch
  * =========================================================================================
  * Target Board       : ESP32 Dev Module / NodeMCU-32S / ESP-WROOM-32
- * Device Token Model : Hardware Casing QR Token (Default: GKBSEC-00106)
+ * Device Token Model : Hardware Casing QR Token (Default: GKB-SEC-0001)
  * Sensors & Outputs  :
  *   - PIR Motion Sensor : GPIO 15 (Input - HC-SR501 / AM312 PIR Digital Out)
  *   - Siren Strobe Relay: GPIO 23 (Output - Active HIGH 5V Relay Channel)
@@ -355,7 +356,7 @@ HardwareSerial gsmSerial(2);
 #define RELAY_ACTIVE_HIGH   true
 
 // ================= DEFAULT DEVICE IDENTITY =================
-#define DEFAULT_DEVICE_KEY  "GKBSEC-00106"
+#define DEFAULT_DEVICE_KEY  "${deviceKey}"
 #define SUPABASE_DEVICE_ID  "security_01"
 
 // ================= BLE GATT SPECIFICATIONS =================
@@ -955,11 +956,7 @@ class CharacteristicCallbacks: public BLECharacteristicCallbacks {
       String submittedKey = rxValue.substring(7);
       submittedKey.trim();
 
-      if (submittedKey == deviceKey || 
-          submittedKey == DEFAULT_DEVICE_KEY || 
-          submittedKey == "GKBSEC-00106" || 
-          submittedKey == "GKB-SEC-0001" || 
-          submittedKey == "GKB-RELAY-0001") {
+      if (submittedKey == deviceKey || submittedKey == DEFAULT_DEVICE_KEY) {
         qrAuthenticated = true;
         Serial.printf("✅ [BLE AUTH] Hardware QR match confirmed (%s). Device unlocked.\\n", submittedKey.c_str());
         pTxCharacteristic->setValue("AUTH_SUCCESS:DEVICE_UNLOCKED");
@@ -1242,7 +1239,7 @@ export default function SmartSecurityDashboard({
   mode?: 'test' | 'service';
   device?: Device;
 }) {
-  const deviceKey = device?.key || 'GKBSEC-00106';
+  const deviceKey = device?.key || 'GKB-SEC-0001';
 
   // Security Operating State
   const [armedMode, setArmedMode] = useState<'away' | 'stay' | 'disarmed'>('away');

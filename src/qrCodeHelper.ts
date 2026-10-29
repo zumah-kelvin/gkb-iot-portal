@@ -1,6 +1,6 @@
 /**
  * GKB Technologies — Zero-Dependency QR Code Generator (Type 1-4, ECC Level M/L)
- * Generates an SVG or 2D boolean matrix for any device key (e.g. GKBSEC-00106).
+ * Generates an SVG or 2D boolean matrix for any device key (e.g. GKB-SEC-0001).
  */
 
 // Simple, robust QR matrix generator for alphanumeric / byte strings up to 64 chars
@@ -27,7 +27,7 @@ export function createQrSvg(text: string, size: number = 200): string {
 
 // Lightweight Reed-Solomon / QR Code Matrix builder for short alphanumeric tokens
 function generateQrMatrix(input: string): boolean[][] {
-  // Standard Version 2 QR code (25x25) accommodates up to 32 alphanumeric chars (perfect for GKBSEC-00106)
+  // Standard Version 2 QR code (25x25) accommodates up to 32 alphanumeric chars (perfect for GKB-SEC-0001)
   // Version 3 (29x29) for longer tokens up to 55 chars
   const len = input.length;
   const size = len > 26 ? 29 : 25;

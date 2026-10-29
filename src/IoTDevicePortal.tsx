@@ -79,8 +79,7 @@ const defaultDevices: Device[] = [
   {
     id: 3,
     name: 'Smart Home Security System v1',
-    key: 'GKBSEC-00106',
-    legacyKeys: ['GKB-SEC-0001', 'GKB-SEC-9988'],
+    key: 'GKB-SEC-0001',
     status: 'Active Target',
     lastAlert: 'PIR Motion (GPIO 15) · Siren Strobe (GPIO 23) · Buzzer (GPIO 19) · GSM SIM800L Auto-Dial & SMS',
     project: 'smart-security-system'
@@ -1407,7 +1406,7 @@ export default function IoTDevicePortal() {
               <LightControlDashboard mode="service" device={selectedDevice} />
             ) : selectedDevice.project === 'water-tank-monitor' || selectedDevice.key === 'GKB-SWP-0001' ? (
               <WaterTankDashboard mode="service" device={selectedDevice} />
-            ) : selectedDevice.project === 'smart-security-system' || selectedDevice.key === 'GKBSEC-00106' || selectedDevice.key === 'GKB-SEC-0001' ? (
+            ) : selectedDevice.project === 'smart-security-system' || selectedDevice.key === 'GKB-SEC-0001' ? (
               <SmartSecurityDashboard mode="service" device={selectedDevice} />
             ) : selectedDevice.project === 'fan-regulator' || selectedDevice.key === 'GKB-FAN-0001' || selectedDevice.key === 'GKB-SFLC-0001' ? (
               <FanRegulatorDashboard mode="service" device={selectedDevice} />
