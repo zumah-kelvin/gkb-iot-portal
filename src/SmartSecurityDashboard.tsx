@@ -62,7 +62,7 @@ ALTER TABLE public.home_security_status
   ADD COLUMN IF NOT EXISTS gsm_sim_status TEXT NOT NULL DEFAULT 'READY',
   ADD COLUMN IF NOT EXISTS gsm_call_state TEXT NOT NULL DEFAULT 'IDLE',
   ADD COLUMN IF NOT EXISTS gsm_last_sms_status TEXT NOT NULL DEFAULT 'IDLE',
-  ADD COLUMN IF NOT EXISTS primary_phone TEXT NOT NULL DEFAULT '0552117787',
+  ADD COLUMN IF NOT EXISTS primary_phone TEXT NOT NULL DEFAULT '+233256905290',
   ADD COLUMN IF NOT EXISTS secondary_phone TEXT NOT NULL DEFAULT '',
   ADD COLUMN IF NOT EXISTS sms_on_alarm BOOLEAN NOT NULL DEFAULT true,
   ADD COLUMN IF NOT EXISTS call_on_alarm BOOLEAN NOT NULL DEFAULT true,
@@ -112,7 +112,7 @@ VALUES (
   'READY',
   'IDLE',
   'IDLE',
-  '0552117787',
+  '+233256905290',
   '',
   true,
   true,
@@ -121,7 +121,7 @@ VALUES (
 ON CONFLICT (device_id) DO UPDATE SET
   device_key = EXCLUDED.device_key,
   gsm_enabled = COALESCE(public.home_security_status.gsm_enabled, EXCLUDED.gsm_enabled),
-  primary_phone = COALESCE(NULLIF(public.home_security_status.primary_phone, ''), EXCLUDED.primary_phone),
+  primary_phone = EXCLUDED.primary_phone,
   sms_on_alarm = COALESCE(public.home_security_status.sms_on_alarm, EXCLUDED.sms_on_alarm),
   call_on_alarm = COALESCE(public.home_security_status.call_on_alarm, EXCLUDED.call_on_alarm);
 
@@ -404,7 +404,7 @@ String gsmNetworkOperator = "MTN-GH";
 String gsmSimStatus       = "READY";
 String gsmCallState       = "IDLE";   // "IDLE", "DIALING", "RINGING", "COMPLETED", "FAILED"
 String gsmLastSmsStatus   = "IDLE";   // "IDLE", "SENDING", "SENT_OK", "FAILED"
-String primaryPhone       = "0552117787";
+String primaryPhone       = "+233256905290";
 String secondaryPhone     = "";
 bool   smsOnAlarm         = true;
 bool   callOnAlarm        = true;
@@ -594,9 +594,21 @@ void updateGsmOperator() {
   }
 }
 
+String sanitizePhoneNumber(const String& phone) {
+  String clean = "";
+  for (unsigned int i = 0; i < phone.length(); i++) {
+    char c = phone.charAt(i);
+    if (c == '+' || (c >= '0' && c <= '9')) {
+      clean += c;
+    }
+  }
+  return clean;
+}
+
 bool sendGsmSms(const String& recipient, const String& message) {
-  if (recipient.length() < 9) {
-    Serial.printf("⚠️ [GSM SMS] Aborted. Recipient number too short: '%s'\\n", recipient.c_str());
+  String targetNum = sanitizePhoneNumber(recipient);
+  if (targetNum.length() < 9) {
+    Serial.printf("⚠️ [GSM SMS] Aborted. Recipient number too short: '%s'\\n", targetNum.c_str());
     return false;
   }
 
@@ -611,13 +623,13 @@ bool sendGsmSms(const String& recipient, const String& message) {
     return false;
   }
 
-  Serial.printf("📤 [GSM SMS] Sending to [%s]:\\n   \\"%s\\"\\n", recipient.c_str(), message.c_str());
+  Serial.printf("📤 [GSM SMS] Sending to [%s]:\\n   \\"%s\\"\\n", targetNum.c_str(), message.c_str());
   gsmLastSmsStatus = "SENDING";
 
   while (gsmSerial.available()) gsmSerial.read();
 
   gsmSerial.print("AT+CMGS=\\"");
-  gsmSerial.print(recipient);
+  gsmSerial.print(targetNum);
   gsmSerial.println("\\"");
 
   // Wait for '>' prompt
@@ -668,7 +680,8 @@ bool sendGsmSms(const String& recipient, const String& message) {
 }
 
 void makeEmergencyCall(const String& recipient) {
-  if (recipient.length() < 9) return;
+  String targetNum = sanitizePhoneNumber(recipient);
+  if (targetNum.length() < 9) return;
 
   if (gsmSimStatus != "READY") {
     checkGsmSimStatus(true);
@@ -680,14 +693,14 @@ void makeEmergencyCall(const String& recipient) {
     return;
   }
 
-  Serial.printf("📞 [GSM CALL] Placing emergency voice call to [%s]...\\n", recipient.c_str());
+  Serial.printf("📞 [GSM CALL] Placing emergency voice call to [%s]...\\n", targetNum.c_str());
   gsmCallState = "DIALING";
 
   sendAtCommand("ATH", 400); // Hang up any existing line
   delay(150);
 
   // Notice the semicolon at the end indicates voice dial
-  String dialCmd = "ATD" + recipient + ";";
+  String dialCmd = "ATD" + targetNum + ";";
   gsmSerial.println(dialCmd);
 
   isCallInProgress = true;
@@ -1303,7 +1316,7 @@ export default function SmartSecurityDashboard({
   const [gsmSimStatus, setGsmSimStatus] = useState<string>('READY');
   const [gsmCallState, setGsmCallState] = useState<string>('IDLE');
   const [gsmLastSmsStatus, setGsmLastSmsStatus] = useState<string>('IDLE');
-  const [primaryPhone, setPrimaryPhone] = useState<string>('0552117787');
+  const [primaryPhone, setPrimaryPhone] = useState<string>('+233256905290');
   const [secondaryPhone, setSecondaryPhone] = useState<string>('');
   const [smsOnAlarm, setSmsOnAlarm] = useState<boolean>(true);
   const [callOnAlarm, setCallOnAlarm] = useState<boolean>(true);

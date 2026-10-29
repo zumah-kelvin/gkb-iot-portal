@@ -27,7 +27,7 @@ ALTER TABLE public.home_security_status
   ADD COLUMN IF NOT EXISTS gsm_sim_status TEXT NOT NULL DEFAULT 'READY',
   ADD COLUMN IF NOT EXISTS gsm_call_state TEXT NOT NULL DEFAULT 'IDLE',
   ADD COLUMN IF NOT EXISTS gsm_last_sms_status TEXT NOT NULL DEFAULT 'IDLE',
-  ADD COLUMN IF NOT EXISTS primary_phone TEXT NOT NULL DEFAULT '0552117787',
+  ADD COLUMN IF NOT EXISTS primary_phone TEXT NOT NULL DEFAULT '+233256905290',
   ADD COLUMN IF NOT EXISTS secondary_phone TEXT NOT NULL DEFAULT '',
   ADD COLUMN IF NOT EXISTS sms_on_alarm BOOLEAN NOT NULL DEFAULT true,
   ADD COLUMN IF NOT EXISTS call_on_alarm BOOLEAN NOT NULL DEFAULT true,
@@ -77,7 +77,7 @@ VALUES (
   'READY',
   'IDLE',
   'IDLE',
-  '0552117787',
+  '+233256905290',
   '',
   true,
   true,
@@ -86,7 +86,7 @@ VALUES (
 ON CONFLICT (device_id) DO UPDATE SET
   device_key = EXCLUDED.device_key,
   gsm_enabled = COALESCE(public.home_security_status.gsm_enabled, EXCLUDED.gsm_enabled),
-  primary_phone = COALESCE(NULLIF(public.home_security_status.primary_phone, ''), EXCLUDED.primary_phone),
+  primary_phone = EXCLUDED.primary_phone,
   sms_on_alarm = COALESCE(public.home_security_status.sms_on_alarm, EXCLUDED.sms_on_alarm),
   call_on_alarm = COALESCE(public.home_security_status.call_on_alarm, EXCLUDED.call_on_alarm);
 
