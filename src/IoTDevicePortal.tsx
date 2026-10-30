@@ -108,14 +108,6 @@ const defaultDevices: Device[] = [
     status: 'Active Target',
     lastAlert: 'Multi-speed capacitor relay bank · DHT22 Environmental Telemetry · Auto-Thermal Trigger',
     project: 'fan-regulator'
-  },
-  {
-    id: 9,
-    name: 'Smart Alcohol Breathalyzer System',
-    key: 'GKB-SAB-0001',
-    status: 'Fleet',
-    lastAlert: 'MQ-3 Gas Sensor · Vehicle Ignition Lockout',
-    project: 'alcohol-breathalyzer'
   }
 ];
 
