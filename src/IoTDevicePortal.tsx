@@ -12,7 +12,7 @@ import {
   ArrowRight, Sun, Moon, Zap, Wifi, Radio, Key,
   Copy, Download, Code, Check, Printer, Bluetooth, QrCode, X, RefreshCw,
   Layers, Lightbulb, Power, Droplets, Fuel, Gauge, Wind, FlaskConical,
-  ShieldCheck, Sparkles, MapPin
+  ShieldCheck, Sparkles, MapPin, Plus, Trash2, Search, CheckCircle2
 } from 'lucide-react';
 
 type UserType = {
@@ -34,6 +34,8 @@ export type StudentProject =
   | 'prepaid-energy-meter'
   | 'fan-regulator'
   | 'alcohol-breathalyzer';
+
+export type PortalTab = 'fleet' | 'deploy' | 'my-devices' | 'add-device' | 'dashboard' | 'support' | 'contact';
 
 export type Device = {
   id: number;
@@ -816,7 +818,7 @@ function GenericFleetPreviewDashboard({
 
 // ================= MAIN IOT DEVICE PORTAL =================
 export default function IoTDevicePortal() {
-  const [activeTab, setActiveTab] = useState<'fleet' | 'dashboard' | 'support' | 'contact'>('fleet');
+  const [activeTab, setActiveTab] = useState<PortalTab>('my-devices');
   const [isLightMode, setIsLightMode] = useState(
     () => window.localStorage.getItem('gkb-theme') === 'light'
   );
@@ -834,14 +836,62 @@ export default function IoTDevicePortal() {
   const [loginBusy, setLoginBusy] = useState(false);
   const [creatingAccount, setCreatingAccount] = useState(false);
 
-  // Selected device from fleet (defaults to active target: Smart Light Control System v1)
-  const [selectedDevice, setSelectedDevice] = useState<Device>(defaultDevices[1]);
+  // Admin identity check
+  const isAdmin = Boolean(user && (user.role === 'admin' || user.email?.toLowerCase() === 'zumkel023@gmail.com'));
+
+  // ================= DEPLOYED HARDWARE REGISTRY (Admin Deployed Keys) =================
+  const [deployedDevices, setDeployedDevices] = useState<Device[]>(() => {
+    try {
+      const stored = window.localStorage.getItem('gkb-deployed-devices');
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      }
+    } catch {}
+    return defaultDevices;
+  });
+
+  // ================= CLIENT LINKED DEVICES (User's Saved Hardware) =================
+  const [linkedDevices, setLinkedDevices] = useState<Device[]>(() => {
+    try {
+      const stored = window.localStorage.getItem('gkb-user-linked-devices');
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        if (Array.isArray(parsed)) return parsed;
+      }
+    } catch {}
+    return [];
+  });
+
+  // Selected device for live dashboard
+  const [selectedDevice, setSelectedDevice] = useState<Device | null>(defaultDevices[1]);
+
+  // Bluetooth Provisioning Modal State
+  const [bleModalOpen, setBleModalOpen] = useState(false);
+  const [bleTargetDevice, setBleTargetDevice] = useState<Device | null>(null);
+
+  // Client "Add New Device" State
+  const [clientKeyInput, setClientKeyInput] = useState('');
+  const [clientLinkBusy, setClientLinkBusy] = useState(false);
+  const [clientLinkError, setClientLinkError] = useState('');
+  const [clientLinkSuccess, setClientLinkSuccess] = useState('');
+
+  // Admin "Deploy Hardware Key" Form State
+  const [deployKey, setDeployKey] = useState('');
+  const [deployName, setDeployName] = useState('');
+  const [deployProject, setDeployProject] = useState<StudentProject>('relay-test');
+  const [deployChannels, setDeployChannels] = useState<2 | 4 | 6 | 8>(4);
+  const [deployNotes, setDeployNotes] = useState('');
+  const [deployBusy, setDeployBusy] = useState(false);
+  const [deployError, setDeployError] = useState('');
+  const [deploySuccess, setDeploySuccess] = useState('');
+  const [deploySearchFilter, setDeploySearchFilter] = useState('');
+
+  // General fleet connector state
   const [inputKey, setInputKey] = useState('');
   const [linkMessage, setLinkMessage] = useState('');
   const [linkMessageIsError, setLinkMessageIsError] = useState(false);
   const [linkBusy, setLinkBusy] = useState(false);
-
-  const isAdmin = Boolean(user && (user.role === 'admin' || user.email?.toLowerCase() === 'zumkel023@gmail.com'));
 
   useEffect(() => {
     window.localStorage.setItem('gkb-devices', JSON.stringify(defaultDevices));
@@ -851,7 +901,120 @@ export default function IoTDevicePortal() {
     window.localStorage.setItem('gkb-theme', isLightMode ? 'light' : 'dark');
   }, [isLightMode]);
 
-  // Auth session
+  // Fetch Admin Deployed Devices from Supabase public.gkb_deployed_devices
+  const fetchDeployedDevices = useCallback(async () => {
+    if (!relaySupabase) return;
+    try {
+      const { data, error } = await relaySupabase
+        .from('gkb_deployed_devices')
+        .select('*')
+        .order('created_at', { ascending: false });
+      if (!error && data && Array.isArray(data) && data.length > 0) {
+        const customDevices: Device[] = data.map((row: any, idx: number) => ({
+          id: 1000 + idx,
+          name: row.device_name,
+          key: row.device_key,
+          status: row.status || 'Verified',
+          lastAlert: row.last_alert || 'Hardware key active on cloud',
+          project: row.project as StudentProject,
+          relayChannels: row.relay_channels
+        }));
+
+        const combined = [...defaultDevices];
+        for (const cd of customDevices) {
+          const existingIdx = combined.findIndex(d => d.key.toUpperCase() === cd.key.toUpperCase());
+          if (existingIdx >= 0) {
+            combined[existingIdx] = { ...combined[existingIdx], ...cd };
+          } else {
+            combined.push(cd);
+          }
+        }
+        setDeployedDevices(combined);
+        window.localStorage.setItem('gkb-deployed-devices', JSON.stringify(combined));
+      }
+    } catch (err) {
+      console.warn('Could not load deployed devices from Supabase:', err);
+    }
+  }, []);
+
+  useEffect(() => {
+    void fetchDeployedDevices();
+  }, [fetchDeployedDevices]);
+
+  // Load Client Linked Devices from Supabase public.gkb_user_devices
+  useEffect(() => {
+    if (!user) {
+      setLinkedDevices([]);
+      return;
+    }
+    let disposed = false;
+    const fetchUserDevices = async () => {
+      // 1. Check local storage cache for this user
+      try {
+        const local = window.localStorage.getItem(`gkb-linked-devices:${user.id}`);
+        if (local && !disposed) {
+          const parsed = JSON.parse(local);
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            setLinkedDevices(parsed);
+          }
+        }
+      } catch {}
+
+      // 2. Fetch from Supabase gkb_user_devices
+      if (!relaySupabase) return;
+      try {
+        const { data, error } = await relaySupabase
+          .from('gkb_user_devices')
+          .select('*')
+          .eq('user_id', user.id);
+        if (disposed) return;
+        if (!error && data) {
+          const mapped: Device[] = data.map((row: any) => {
+            const catalogMatch = deployedDevices.find(d => d.key.toUpperCase() === row.device_key.toUpperCase());
+            return {
+              id: catalogMatch?.id || (Date.now() + Math.random()),
+              name: row.device_name || catalogMatch?.name || 'GKB Smart Device',
+              key: row.device_key,
+              status: row.status || catalogMatch?.status || 'Verified Node',
+              lastAlert: row.last_alert || catalogMatch?.lastAlert || 'Active telemetry node',
+              project: (row.project || catalogMatch?.project || 'smart-security-system') as StudentProject,
+              relayChannels: row.relay_channels || catalogMatch?.relayChannels
+            };
+          });
+          setLinkedDevices(mapped);
+          window.localStorage.setItem(`gkb-linked-devices:${user.id}`, JSON.stringify(mapped));
+          if (mapped.length > 0) {
+            setSelectedDevice(prev => {
+              if (prev && mapped.some(d => d.key === prev.key)) return prev;
+              return mapped[0];
+            });
+          }
+        }
+      } catch (err) {
+        console.warn('Could not load user devices from Supabase:', err);
+      }
+    };
+
+    void fetchUserDevices();
+    return () => { disposed = true; };
+  }, [user, deployedDevices]);
+
+  // Route activeTab correctly based on role when session is loaded
+  useEffect(() => {
+    if (!sessionLoading && user) {
+      if (isAdmin) {
+        // Admin default
+        if (activeTab === 'add-device') setActiveTab('deploy');
+      } else {
+        // Client: Cannot access full fleet or deploy tabs
+        if (activeTab === 'fleet' || activeTab === 'deploy') {
+          setActiveTab('my-devices');
+        }
+      }
+    }
+  }, [user, isAdmin, sessionLoading]);
+
+  // Auth session management
   const applyPortalSession = useCallback(async (session: Session | null) => {
     if (!session?.user.email && !session?.user.phone) {
       setUser(null);
@@ -881,6 +1044,11 @@ export default function IoTDevicePortal() {
       location: typeof metadata?.location === 'string' ? metadata.location : ''
     };
     setUser(account);
+    if (role === 'admin') {
+      setActiveTab('fleet');
+    } else {
+      setActiveTab('my-devices');
+    }
   }, []);
 
   useEffect(() => {
@@ -980,8 +1148,198 @@ export default function IoTDevicePortal() {
     if (!relaySupabase) return;
     await relaySupabase.auth.signOut();
     setUser(null);
+    setLinkedDevices([]);
   };
 
+  // ================= CLIENT ACTION: VERIFY KEY & CONNECT VIA BLUETOOTH =================
+  const handleClientKeySubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setClientLinkBusy(true);
+    setClientLinkError('');
+    setClientLinkSuccess('');
+
+    const clean = clientKeyInput.trim().toUpperCase();
+    if (!clean) {
+      setClientLinkError('Please enter your hardware device key.');
+      setClientLinkBusy(false);
+      return;
+    }
+
+    // 1. Verify if key exists in deployed devices (Admin deployed fleet)
+    const matched = deployedDevices.find(d =>
+      d.key.toUpperCase() === clean ||
+      d.legacyKeys?.some(k => k.toUpperCase() === clean)
+    );
+
+    if (!matched) {
+      setClientLinkError(
+        `❌ Invalid Device Key: Hardware key "${clean}" does not exist or has not been deployed by GKB Technologies. Please check the label on your physical casing or contact GKB support.`
+      );
+      setClientLinkBusy(false);
+      return;
+    }
+
+    // 2. Verified! Save link to user's account and launch Bluetooth pairing
+    try {
+      if (user && relaySupabase) {
+        await relaySupabase.from('gkb_user_devices').upsert({
+          user_id: user.id,
+          device_key: matched.key,
+          device_name: matched.name,
+          status: matched.status,
+          last_alert: matched.lastAlert,
+          project: matched.project ?? null,
+          relay_channels: matched.relayChannels ?? null
+        }, { onConflict: 'user_id,device_key' });
+      }
+
+      const nextList = linkedDevices.some(d => d.key === matched.key)
+        ? linkedDevices
+        : [...linkedDevices, matched];
+      setLinkedDevices(nextList);
+      if (user) {
+        window.localStorage.setItem(`gkb-linked-devices:${user.id}`, JSON.stringify(nextList));
+      }
+
+      setSelectedDevice(matched);
+      setBleTargetDevice(matched);
+      setClientLinkSuccess(`✅ Hardware Key "${matched.key}" verified for ${matched.name}! Launching Bluetooth pairing...`);
+      setClientKeyInput('');
+
+      // Open Bluetooth Provisioning Modal
+      setBleModalOpen(true);
+    } catch (err) {
+      console.error('Failed to save linked device:', err);
+      // Fallback local save for smooth UX
+      const nextList = linkedDevices.some(d => d.key === matched.key)
+        ? linkedDevices
+        : [...linkedDevices, matched];
+      setLinkedDevices(nextList);
+      setSelectedDevice(matched);
+      setBleTargetDevice(matched);
+      setClientLinkSuccess(`✅ Hardware Key "${matched.key}" verified for ${matched.name}! Launching Bluetooth pairing...`);
+      setClientKeyInput('');
+      setBleModalOpen(true);
+    } finally {
+      setClientLinkBusy(false);
+    }
+  };
+
+  // ================= CLIENT ACTION: UNLINK DEVICE =================
+  const handleUnlinkClientDevice = async (device: Device) => {
+    if (!window.confirm(`Unlink "${device.name}" (${device.key}) from your account? This removes it from your active device list.`)) {
+      return;
+    }
+    try {
+      if (user && relaySupabase) {
+        await relaySupabase
+          .from('gkb_user_devices')
+          .delete()
+          .eq('user_id', user.id)
+          .eq('device_key', device.key);
+      }
+      const updated = linkedDevices.filter(d => d.key !== device.key);
+      setLinkedDevices(updated);
+      if (user) {
+        window.localStorage.setItem(`gkb-linked-devices:${user.id}`, JSON.stringify(updated));
+      }
+      if (selectedDevice?.key === device.key) {
+        setSelectedDevice(updated.length > 0 ? updated[0] : null);
+      }
+    } catch (err) {
+      console.error('Failed to unlink device:', err);
+    }
+  };
+
+  // ================= ADMIN ACTION: DEPLOY HARDWARE KEY =================
+  const handleAdminDeployKey = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!isAdmin) return;
+    setDeployBusy(true);
+    setDeployError('');
+    setDeploySuccess('');
+
+    const cleanKey = deployKey.trim().toUpperCase();
+    const cleanName = deployName.trim();
+    if (!cleanKey) {
+      setDeployError('Please enter a hardware device key (e.g. GKB-RELAY-0002, GKB-FAN-0002).');
+      setDeployBusy(false);
+      return;
+    }
+    if (!cleanName) {
+      setDeployError('Please enter a descriptive device name.');
+      setDeployBusy(false);
+      return;
+    }
+
+    const newDevice: Device = {
+      id: Date.now(),
+      name: cleanName,
+      key: cleanKey,
+      project: deployProject,
+      relayChannels: deployProject === 'light-control' ? deployChannels : undefined,
+      status: 'Verified',
+      lastAlert: deployNotes.trim() || `Hardware key deployed by Admin (${new Date().toLocaleDateString()})`
+    };
+
+    try {
+      if (relaySupabase) {
+        const { error } = await relaySupabase.from('gkb_deployed_devices').upsert({
+          device_key: cleanKey,
+          device_name: cleanName,
+          project: deployProject,
+          relay_channels: deployProject === 'light-control' ? deployChannels : null,
+          status: 'Verified',
+          last_alert: newDevice.lastAlert
+        }, { onConflict: 'device_key' });
+        if (error) {
+          console.warn('Supabase upsert warning on gkb_deployed_devices:', error.message);
+        }
+      }
+
+      const updated = [...deployedDevices];
+      const existingIdx = updated.findIndex(d => d.key.toUpperCase() === cleanKey);
+      if (existingIdx >= 0) {
+        updated[existingIdx] = newDevice;
+      } else {
+        updated.unshift(newDevice);
+      }
+      setDeployedDevices(updated);
+      window.localStorage.setItem('gkb-deployed-devices', JSON.stringify(updated));
+
+      setDeploySuccess(`✅ Hardware Key "${cleanKey}" successfully deployed for "${cleanName}"! Clients can now link and pair this hardware.`);
+      setDeployKey('');
+      setDeployName('');
+      setDeployNotes('');
+    } catch (err) {
+      setDeployError(formatSupabaseError(err));
+    } finally {
+      setDeployBusy(false);
+    }
+  };
+
+  // ================= ADMIN ACTION: REVOKE / DELETE KEY =================
+  const handleAdminRevokeKey = async (keyToRevoke: string) => {
+    if (!isAdmin) return;
+    if (!window.confirm(`Are you sure you want to revoke and delete hardware key "${keyToRevoke}"? Clients will no longer be able to link this device.`)) {
+      return;
+    }
+    try {
+      if (relaySupabase) {
+        await relaySupabase
+          .from('gkb_deployed_devices')
+          .delete()
+          .eq('device_key', keyToRevoke);
+      }
+      const updated = deployedDevices.filter(d => d.key.toUpperCase() !== keyToRevoke.toUpperCase());
+      setDeployedDevices(updated);
+      window.localStorage.setItem('gkb-deployed-devices', JSON.stringify(updated));
+    } catch (err) {
+      console.error('Failed to revoke key:', err);
+    }
+  };
+
+  // Admin Fleet Quick Key Search
   const handleKeySearch = (e: React.FormEvent) => {
     e.preventDefault();
     setLinkBusy(true);
@@ -996,7 +1354,7 @@ export default function IoTDevicePortal() {
       return;
     }
 
-    const matched = defaultDevices.find(d =>
+    const matched = deployedDevices.find(d =>
       d.key.toUpperCase() === clean ||
       d.legacyKeys?.some(k => k.toUpperCase() === clean) ||
       d.name.toUpperCase().includes(clean)
@@ -1008,7 +1366,7 @@ export default function IoTDevicePortal() {
       setActiveTab('dashboard');
     } else {
       setLinkMessageIsError(true);
-      setLinkMessage(`No hardware device registered with key "${clean}". Select from fleet below.`);
+      setLinkMessage(`No hardware device registered with key "${clean}". Verify key or deploy new hardware.`);
     }
     setLinkBusy(false);
   };
@@ -1324,16 +1682,71 @@ export default function IoTDevicePortal() {
 
           {/* Navigation Bar */}
           <nav aria-label="Main navigation" className="hidden md:flex items-center space-x-1.5">
-            <button
-              type="button"
-              onClick={() => setActiveTab('fleet')}
-              className={`px-4 py-2 rounded-xl text-sm font-bold transition-all cursor-pointer ${activeTab === 'fleet' ? 'bg-cyan-500/15 text-cyan-300 border border-cyan-400/60 shadow-[0_0_15px_rgba(6,182,212,0.25)]' : 'text-slate-400 hover:text-cyan-300'}`}
-            >
-              <span className="flex items-center gap-2">
-                <Layers className="h-4 w-4" />
-                Hardware Fleet
-              </span>
-            </button>
+            {isAdmin ? (
+              <>
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('fleet')}
+                  className={`px-4 py-2 rounded-xl text-sm font-bold transition-all cursor-pointer ${activeTab === 'fleet' ? 'bg-cyan-500/15 text-cyan-300 border border-cyan-400/60 shadow-[0_0_15px_rgba(6,182,212,0.25)]' : 'text-slate-400 hover:text-cyan-300'}`}
+                >
+                  <span className="flex items-center gap-2">
+                    <Layers className="h-4 w-4" />
+                    Hardware Fleet
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setActiveTab('deploy');
+                    setDeployError('');
+                    setDeploySuccess('');
+                  }}
+                  className={`px-4 py-2 rounded-xl text-sm font-bold transition-all cursor-pointer ${activeTab === 'deploy' ? 'bg-purple-500/15 text-purple-300 border border-purple-400/60 shadow-[0_0_15px_rgba(168,85,247,0.25)]' : 'text-slate-400 hover:text-purple-300'}`}
+                >
+                  <span className="flex items-center gap-2">
+                    <Sparkles className="h-4 w-4" />
+                    Deploy Keys
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('my-devices')}
+                  className={`px-4 py-2 rounded-xl text-sm font-bold transition-all cursor-pointer ${activeTab === 'my-devices' ? 'bg-cyan-500/15 text-cyan-300 border border-cyan-400/60 shadow-[0_0_15px_rgba(6,182,212,0.25)]' : 'text-slate-400 hover:text-cyan-300'}`}
+                >
+                  <span className="flex items-center gap-2">
+                    <Radio className="h-4 w-4" />
+                    My Devices {linkedDevices.length > 0 && `(${linkedDevices.length})`}
+                  </span>
+                </button>
+              </>
+            ) : (
+              <>
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('my-devices')}
+                  className={`px-4 py-2 rounded-xl text-sm font-bold transition-all cursor-pointer ${activeTab === 'my-devices' ? 'bg-cyan-500/15 text-cyan-300 border border-cyan-400/60 shadow-[0_0_15px_rgba(6,182,212,0.25)]' : 'text-slate-400 hover:text-cyan-300'}`}
+                >
+                  <span className="flex items-center gap-2">
+                    <Radio className="h-4 w-4" />
+                    My Devices {linkedDevices.length > 0 && `(${linkedDevices.length})`}
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setActiveTab('add-device');
+                    setClientLinkError('');
+                    setClientLinkSuccess('');
+                  }}
+                  className={`px-4 py-2 rounded-xl text-sm font-bold transition-all cursor-pointer ${activeTab === 'add-device' ? 'bg-gradient-to-r from-cyan-500 to-purple-600 text-black font-black shadow-[0_0_15px_rgba(6,182,212,0.35)]' : 'bg-cyan-500/10 text-cyan-300 border border-cyan-500/30 hover:bg-cyan-500/20'}`}
+                >
+                  <span className="flex items-center gap-2">
+                    <Plus className="h-4 w-4" />
+                    Add New Device
+                  </span>
+                </button>
+              </>
+            )}
             <button
               type="button"
               onClick={() => setActiveTab('dashboard')}
@@ -1397,13 +1810,56 @@ export default function IoTDevicePortal() {
 
         {/* Mobile Navigation */}
         <nav className="flex md:hidden gap-1 overflow-x-auto border-t border-slate-800/70 px-3 py-2">
-          <button
-            type="button"
-            onClick={() => setActiveTab('fleet')}
-            className={`px-3 py-1.5 rounded-md text-xs font-medium whitespace-nowrap cursor-pointer ${activeTab === 'fleet' ? 'bg-cyan-500/10 text-cyan-400 border border-cyan-500/40' : 'text-slate-400'}`}
-          >
-            Hardware Fleet
-          </button>
+          {isAdmin ? (
+            <>
+              <button
+                type="button"
+                onClick={() => setActiveTab('fleet')}
+                className={`px-3 py-1.5 rounded-md text-xs font-medium whitespace-nowrap cursor-pointer ${activeTab === 'fleet' ? 'bg-cyan-500/10 text-cyan-400 border border-cyan-500/40' : 'text-slate-400'}`}
+              >
+                Hardware Fleet
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setActiveTab('deploy');
+                  setDeployError('');
+                  setDeploySuccess('');
+                }}
+                className={`px-3 py-1.5 rounded-md text-xs font-medium whitespace-nowrap cursor-pointer ${activeTab === 'deploy' ? 'bg-purple-500/10 text-purple-400 border border-purple-500/40' : 'text-slate-400'}`}
+              >
+                Deploy Keys
+              </button>
+              <button
+                type="button"
+                onClick={() => setActiveTab('my-devices')}
+                className={`px-3 py-1.5 rounded-md text-xs font-medium whitespace-nowrap cursor-pointer ${activeTab === 'my-devices' ? 'bg-cyan-500/10 text-cyan-400 border border-cyan-500/40' : 'text-slate-400'}`}
+              >
+                My Devices {linkedDevices.length > 0 && `(${linkedDevices.length})`}
+              </button>
+            </>
+          ) : (
+            <>
+              <button
+                type="button"
+                onClick={() => setActiveTab('my-devices')}
+                className={`px-3 py-1.5 rounded-md text-xs font-medium whitespace-nowrap cursor-pointer ${activeTab === 'my-devices' ? 'bg-cyan-500/10 text-cyan-400 border border-cyan-500/40' : 'text-slate-400'}`}
+              >
+                My Devices {linkedDevices.length > 0 && `(${linkedDevices.length})`}
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setActiveTab('add-device');
+                  setClientLinkError('');
+                  setClientLinkSuccess('');
+                }}
+                className={`px-3 py-1.5 rounded-md text-xs font-medium whitespace-nowrap cursor-pointer ${activeTab === 'add-device' ? 'bg-gradient-to-r from-cyan-500 to-purple-600 text-black font-bold' : 'text-cyan-400'}`}
+              >
+                + Add Device
+              </button>
+            </>
+          )}
           <button
             type="button"
             onClick={() => setActiveTab('dashboard')}
@@ -1430,8 +1886,465 @@ export default function IoTDevicePortal() {
 
       {/* Main Body */}
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8">
-        {/* ================= HARDWARE FLEET LANDING VIEW ================= */}
-        {activeTab === 'fleet' && (
+        {/* ================= 1. CLIENT / USER "MY DEVICES" VIEW ================= */}
+        {activeTab === 'my-devices' && (
+          <div className="space-y-8 animate-fadeIn">
+            {/* Header banner */}
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-6 sm:p-8 rounded-3xl border border-cyan-500/30 bg-gradient-to-r from-slate-900 via-slate-900/90 to-slate-950 shadow-[0_0_35px_rgba(6,182,212,0.15)]">
+              <div>
+                <span className="inline-flex items-center gap-1.5 rounded-full border border-cyan-400/40 bg-cyan-400/10 px-3 py-1 text-xs font-bold uppercase tracking-widest text-cyan-300">
+                  <Radio className="h-3.5 w-3.5 animate-pulse" /> Client Hardware Portal
+                </span>
+                <h2 className="text-2xl sm:text-4xl font-black text-white mt-2">
+                  My Smart Devices
+                </h2>
+                <p className="text-xs sm:text-sm text-slate-300 mt-1 max-w-xl">
+                  {linkedDevices.length === 0
+                    ? 'No hardware devices linked yet. Add your device casing key to pair and launch live telemetry.'
+                    : `You have ${linkedDevices.length} linked smart device${linkedDevices.length === 1 ? '' : 's'} ready for live control and monitoring.`}
+                </p>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setActiveTab('add-device');
+                  setClientLinkError('');
+                  setClientLinkSuccess('');
+                }}
+                className="inline-flex items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-cyan-500 via-sky-400 to-purple-600 px-6 py-3 text-xs sm:text-sm font-black uppercase tracking-wider text-slate-950 shadow-lg shadow-cyan-500/25 hover:brightness-110 transition-all cursor-pointer whitespace-nowrap self-start sm:self-auto"
+              >
+                <Plus className="h-4 w-4" />
+                Add New Device
+              </button>
+            </div>
+
+            {/* Empty State */}
+            {linkedDevices.length === 0 ? (
+              <div className="p-10 sm:p-14 rounded-3xl border border-dashed border-slate-800 bg-slate-900/50 text-center space-y-4">
+                <div className="w-16 h-16 mx-auto rounded-2xl bg-cyan-500/10 border border-cyan-500/30 flex items-center justify-center text-cyan-400 shadow-[0_0_20px_rgba(6,182,212,0.2)]">
+                  <Cpu className="w-8 h-8" />
+                </div>
+                <div className="space-y-1">
+                  <h3 className="text-xl font-bold text-white">No Smart Devices Linked</h3>
+                  <p className="text-xs text-slate-400 max-w-md mx-auto leading-relaxed">
+                    You haven't added any GKB Smart Devices to your account. Click below to enter your hardware key and pair via Bluetooth.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setActiveTab('add-device');
+                    setClientLinkError('');
+                    setClientLinkSuccess('');
+                  }}
+                  className="inline-flex items-center gap-2 px-6 py-3 rounded-xl bg-cyan-500 text-slate-950 font-bold text-xs uppercase tracking-wider hover:bg-cyan-400 transition-all cursor-pointer shadow-md shadow-cyan-500/20"
+                >
+                  <Plus className="h-4 w-4" />
+                  Add Your First Device
+                </button>
+              </div>
+            ) : (
+              <div className="grid gap-5 md:grid-cols-2 lg:grid-cols-3">
+                {linkedDevices.map(device => {
+                  const isLight = device.project === 'light-control';
+                  const isRelay = device.project === 'relay-test';
+                  const isSecurity = device.project === 'smart-security-system';
+                  const isWater = device.project === 'water-tank-monitor';
+                  const isFan = device.project === 'fan-regulator';
+
+                  return (
+                    <article
+                      key={device.key}
+                      className="flex flex-col justify-between p-6 rounded-3xl border border-slate-800 bg-slate-900/80 hover:border-cyan-500/40 transition-all duration-200 shadow-lg hover:shadow-cyan-500/10 space-y-5"
+                    >
+                      <div className="space-y-4">
+                        <div className="flex items-center justify-between">
+                          <span className="font-mono text-xs font-bold px-2.5 py-1 rounded-lg border border-cyan-500/30 bg-cyan-500/10 text-cyan-300">
+                            {device.key}
+                          </span>
+                          <span className="inline-flex items-center gap-1.5 text-[10px] font-bold text-emerald-400 bg-emerald-500/10 px-2.5 py-1 rounded-full border border-emerald-500/20">
+                            <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                            {device.status || 'Verified Node'}
+                          </span>
+                        </div>
+
+                        <div className="flex items-start gap-3">
+                          <div className={`p-3 rounded-2xl shrink-0 ${
+                            isLight ? 'bg-amber-500/15 text-amber-400 border border-amber-500/30' :
+                            isRelay ? 'bg-cyan-500/15 text-cyan-400 border border-cyan-500/30' :
+                            isSecurity ? 'bg-rose-500/15 text-rose-400 border border-rose-500/30' :
+                            isWater ? 'bg-sky-500/15 text-sky-400 border border-sky-500/30' :
+                            isFan ? 'bg-blue-500/15 text-blue-400 border border-blue-500/30' :
+                            'bg-purple-500/15 text-purple-400 border border-purple-500/30'
+                          }`}>
+                            {isLight ? <Lightbulb className="w-5 h-5" /> :
+                             isRelay ? <Cpu className="w-5 h-5" /> :
+                             isSecurity ? <Shield className="w-5 h-5" /> :
+                             isWater ? <Droplets className="w-5 h-5" /> :
+                             isFan ? <Wind className="w-5 h-5" /> :
+                             <Zap className="w-5 h-5" />}
+                          </div>
+                          <div>
+                            <h4 className="text-base font-bold text-white leading-snug">{device.name}</h4>
+                            <p className="text-xs text-slate-400 mt-1 line-clamp-2 leading-relaxed">{device.lastAlert}</p>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="space-y-2 pt-2 border-t border-slate-800/80">
+                        <div className="grid grid-cols-2 gap-2">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setSelectedDevice(device);
+                              setActiveTab('dashboard');
+                              window.scrollTo({ top: 0, behavior: 'smooth' });
+                            }}
+                            className="inline-flex items-center justify-center gap-1.5 rounded-xl bg-gradient-to-r from-cyan-500 to-sky-400 py-2.5 px-3 text-xs font-bold uppercase tracking-wider text-slate-950 shadow-md shadow-cyan-500/20 hover:brightness-110 transition-all cursor-pointer"
+                          >
+                            <Cpu className="h-3.5 w-3.5" />
+                            Open
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setSelectedDevice(device);
+                              setBleTargetDevice(device);
+                              setBleModalOpen(true);
+                            }}
+                            className="inline-flex items-center justify-center gap-1.5 rounded-xl border border-slate-700 bg-slate-800/80 py-2.5 px-3 text-xs font-bold text-slate-200 hover:border-cyan-400 hover:text-cyan-300 transition-colors cursor-pointer"
+                          >
+                            <Bluetooth className="h-3.5 w-3.5" />
+                            BLE Setup
+                          </button>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => void handleUnlinkClientDevice(device)}
+                          className="w-full text-center text-[11px] text-slate-500 hover:text-red-400 transition-colors py-1 cursor-pointer"
+                        >
+                          Unlink device from account
+                        </button>
+                      </div>
+                    </article>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ================= 2. CLIENT "ADD NEW DEVICE" TAB ================= */}
+        {activeTab === 'add-device' && (
+          <div className="max-w-2xl mx-auto space-y-6 animate-fadeIn">
+            <div className="rounded-3xl border border-cyan-500/30 bg-slate-900/90 p-6 sm:p-10 shadow-[0_0_40px_rgba(6,182,212,0.15)] space-y-6">
+              <div className="space-y-2 text-center">
+                <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-cyan-500/10 border border-cyan-500/40 text-cyan-300 shadow-[0_0_20px_rgba(6,182,212,0.25)] mb-2">
+                  <Key className="w-7 h-7" />
+                </div>
+                <h2 className="text-2xl sm:text-3xl font-black text-white">Add New GKB Hardware</h2>
+                <p className="text-xs sm:text-sm text-slate-400 max-w-lg mx-auto leading-relaxed">
+                  Enter the unique Hardware Key printed on your physical device casing or QR sticker. Our cloud registry will verify the key and immediately initiate Bluetooth pairing.
+                </p>
+              </div>
+
+              {/* Step indicator */}
+              <div className="grid grid-cols-3 gap-2 py-2">
+                <div className="rounded-xl border border-cyan-500/40 bg-cyan-500/10 p-2.5 text-center">
+                  <span className="block text-[10px] font-mono uppercase text-cyan-400 font-bold">Step 1</span>
+                  <span className="text-xs font-bold text-white">Key Verify</span>
+                </div>
+                <div className="rounded-xl border border-slate-800 bg-slate-950 p-2.5 text-center text-slate-500">
+                  <span className="block text-[10px] font-mono uppercase font-bold">Step 2</span>
+                  <span className="text-xs font-bold">Bluetooth Pair</span>
+                </div>
+                <div className="rounded-xl border border-slate-800 bg-slate-950 p-2.5 text-center text-slate-500">
+                  <span className="block text-[10px] font-mono uppercase font-bold">Step 3</span>
+                  <span className="text-xs font-bold">Live Control</span>
+                </div>
+              </div>
+
+              {/* Error Banner */}
+              {clientLinkError && (
+                <div className="p-4 rounded-2xl border border-red-500/40 bg-red-500/10 text-red-200 text-xs flex items-start gap-3 animate-fadeIn">
+                  <AlertTriangle className="h-5 w-5 text-red-400 shrink-0 mt-0.5" />
+                  <div className="space-y-1">
+                    <p className="font-bold text-red-300">Deployment Verification Failed</p>
+                    <p className="leading-relaxed">{clientLinkError}</p>
+                  </div>
+                </div>
+              )}
+
+              {/* Success Banner */}
+              {clientLinkSuccess && (
+                <div className="p-4 rounded-2xl border border-emerald-500/40 bg-emerald-500/10 text-emerald-200 text-xs flex items-start gap-3 animate-fadeIn">
+                  <CheckCircle2 className="h-5 w-5 text-emerald-400 shrink-0 mt-0.5" />
+                  <div className="space-y-1">
+                    <p className="font-bold text-emerald-300">Key Verified & Linked</p>
+                    <p className="leading-relaxed">{clientLinkSuccess}</p>
+                  </div>
+                </div>
+              )}
+
+              {/* Hardware Key Input Form */}
+              <form onSubmit={handleClientKeySubmit} className="space-y-4">
+                <div>
+                  <label className="block text-xs font-bold uppercase tracking-wider text-slate-300 mb-2">
+                    Hardware Casing Key:
+                  </label>
+                  <div className="relative">
+                    <input
+                      type="text"
+                      autoFocus
+                      placeholder="e.g. GKB-RELAY-0001, GKB-FAN-0001, GKB-SEC-0001"
+                      value={clientKeyInput}
+                      onChange={e => {
+                        setClientKeyInput(e.target.value.toUpperCase());
+                        setClientLinkError('');
+                      }}
+                      className="w-full rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3.5 pl-11 font-mono text-sm sm:text-base text-cyan-300 tracking-wider placeholder-slate-600 focus:border-cyan-400 focus:outline-none focus:ring-2 focus:ring-cyan-500/20"
+                      required
+                    />
+                    <Key className="w-5 h-5 text-slate-500 absolute left-3.5 top-3.5 pointer-events-none" />
+                  </div>
+                </div>
+
+                <button
+                  type="submit"
+                  disabled={clientLinkBusy}
+                  className="w-full py-4 rounded-2xl bg-gradient-to-r from-cyan-500 via-sky-400 to-purple-600 text-slate-950 font-black text-sm uppercase tracking-wider shadow-[0_0_25px_rgba(6,182,212,0.35)] hover:brightness-110 transition-all disabled:opacity-50 cursor-pointer flex items-center justify-center gap-2.5"
+                >
+                  {clientLinkBusy ? (
+                    <>
+                      <RefreshCw className="w-4 h-4 animate-spin" />
+                      <span>Verifying Cloud Key...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Bluetooth className="w-4 h-4" />
+                      <span>Verify Key & Connect via Bluetooth</span>
+                    </>
+                  )}
+                </button>
+              </form>
+
+              {/* Help & Guidelines */}
+              <div className="p-4 rounded-2xl border border-slate-800 bg-slate-950/60 text-xs text-slate-400 space-y-2">
+                <p className="font-bold text-slate-300 flex items-center gap-2">
+                  <ShieldCheck className="w-4 h-4 text-cyan-400" /> Key & Provisioning Instructions:
+                </p>
+                <ul className="list-disc list-inside space-y-1 text-slate-400 pl-1">
+                  <li>Find the token printed on the white QR sticker attached to your GKB module casing.</li>
+                  <li>Ensure your device is powered on. The status LED will pulse indicating ready for BLE connection.</li>
+                  <li>Google Chrome, Edge, and Opera natively support Web Bluetooth on Windows, macOS, Linux, and Android.</li>
+                </ul>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ================= 3. ADMIN ONLY: DEPLOY HARDWARE KEYS ================= */}
+        {isAdmin && activeTab === 'deploy' && (
+          <div className="space-y-8 animate-fadeIn">
+            {/* Admin Header */}
+            <div className="p-6 sm:p-8 rounded-3xl border border-purple-500/30 bg-gradient-to-r from-slate-900 via-purple-950/30 to-slate-950 shadow-[0_0_35px_rgba(168,85,247,0.15)]">
+              <span className="inline-flex items-center gap-1.5 rounded-full border border-purple-400/40 bg-purple-400/10 px-3 py-1 text-xs font-bold uppercase tracking-widest text-purple-300">
+                <Sparkles className="h-3.5 w-3.5" /> GKB Admin Gateway
+              </span>
+              <h2 className="text-2xl sm:text-4xl font-black text-white mt-2">Hardware Deployment & Key Registry</h2>
+              <p className="text-xs sm:text-sm text-slate-300 mt-1 max-w-2xl">
+                Deploy physical hardware keys into the GKB cloud registry. Clients will only be permitted to verify, link, and Bluetooth-provision devices whose keys have been officially deployed here.
+              </p>
+            </div>
+
+            <div className="grid gap-8 lg:grid-cols-12">
+              {/* Deploy New Hardware Key Form (5 cols) */}
+              <div className="lg:col-span-5 rounded-3xl border border-purple-500/30 bg-slate-900/90 p-6 space-y-5 shadow-xl">
+                <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+                  <h3 className="text-base font-bold text-white flex items-center gap-2">
+                    <Plus className="w-4 h-4 text-purple-400" /> Deploy New Hardware Key
+                  </h3>
+                  <span className="text-[10px] font-mono text-purple-400 uppercase font-bold">Cloud Registry</span>
+                </div>
+
+                {deployError && (
+                  <p className="p-3 rounded-xl border border-red-500/30 bg-red-500/10 text-xs text-red-200">
+                    {deployError}
+                  </p>
+                )}
+                {deploySuccess && (
+                  <p className="p-3 rounded-xl border border-emerald-500/30 bg-emerald-500/10 text-xs text-emerald-200">
+                    {deploySuccess}
+                  </p>
+                )}
+
+                <form onSubmit={handleAdminDeployKey} className="space-y-4 text-xs">
+                  <div>
+                    <label className="block text-slate-300 font-bold mb-1">Hardware Key (Device Token)</label>
+                    <input
+                      type="text"
+                      placeholder="e.g. GKB-RELAY-0002, GKB-FAN-0002"
+                      value={deployKey}
+                      onChange={e => setDeployKey(e.target.value.toUpperCase())}
+                      className="w-full rounded-xl border border-slate-700 bg-slate-950 p-3 font-mono text-cyan-300 focus:border-purple-400 focus:outline-none"
+                      required
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-slate-300 font-bold mb-1">Device Name / Label</label>
+                    <input
+                      type="text"
+                      placeholder="e.g. Classroom 3 Smart Fan Regulator"
+                      value={deployName}
+                      onChange={e => setDeployName(e.target.value)}
+                      className="w-full rounded-xl border border-slate-700 bg-slate-950 p-3 text-white focus:border-purple-400 focus:outline-none"
+                      required
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-slate-300 font-bold mb-1">Hardware Project Type</label>
+                    <select
+                      value={deployProject}
+                      onChange={e => setDeployProject(e.target.value as StudentProject)}
+                      className="w-full rounded-xl border border-slate-700 bg-slate-950 p-3 text-white focus:border-purple-400 focus:outline-none cursor-pointer"
+                    >
+                      <option value="relay-test">ESP32 Smart Relay Pilot (Single Relay)</option>
+                      <option value="fan-regulator">Smart Fan Regulator (CBB61 5-Wire)</option>
+                      <option value="smart-security-system">Smart Home Security System v1 (PIR + Siren + GSM)</option>
+                      <option value="light-control">Universal Smart Light Control (Multi-Channel)</option>
+                      <option value="water-tank-monitor">Smart Water Tank Monitor & Pump Controller</option>
+                      <option value="fuel-tank-monitor">Industrial Fuel Tank Monitor</option>
+                      <option value="prepaid-energy-meter">Smart Prepaid Energy Meter</option>
+                    </select>
+                  </div>
+
+                  {deployProject === 'light-control' && (
+                    <div>
+                      <label className="block text-slate-300 font-bold mb-1">Relay Channel Board Variant</label>
+                      <select
+                        value={deployChannels}
+                        onChange={e => setDeployChannels(Number(e.target.value) as 2 | 4 | 6 | 8)}
+                        className="w-full rounded-xl border border-slate-700 bg-slate-950 p-3 text-white focus:border-purple-400 focus:outline-none cursor-pointer"
+                      >
+                        <option value={2}>2-Channel Relay Board</option>
+                        <option value={4}>4-Channel Relay Board</option>
+                        <option value={6}>6-Channel Relay Board</option>
+                        <option value={8}>8-Channel Relay Board</option>
+                      </select>
+                    </div>
+                  )}
+
+                  <div>
+                    <label className="block text-slate-300 font-bold mb-1">Production Batch / Hardware Notes</label>
+                    <input
+                      type="text"
+                      placeholder="e.g. Batch 2026 Q4 Production Node"
+                      value={deployNotes}
+                      onChange={e => setDeployNotes(e.target.value)}
+                      className="w-full rounded-xl border border-slate-700 bg-slate-950 p-3 text-white focus:border-purple-400 focus:outline-none"
+                    />
+                  </div>
+
+                  <button
+                    type="submit"
+                    disabled={deployBusy}
+                    className="w-full py-3.5 rounded-xl bg-gradient-to-r from-purple-500 to-cyan-500 text-slate-950 font-black uppercase tracking-wider text-xs shadow-lg shadow-purple-500/20 hover:brightness-110 transition-all cursor-pointer flex items-center justify-center gap-2"
+                  >
+                    {deployBusy ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
+                    <span>Deploy Hardware Key</span>
+                  </button>
+                </form>
+              </div>
+
+              {/* Deployed Hardware Keys Table (7 cols) */}
+              <div className="lg:col-span-7 rounded-3xl border border-slate-800 bg-slate-900/80 p-6 space-y-4 shadow-xl">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-800 pb-3">
+                  <div>
+                    <h3 className="text-base font-bold text-white flex items-center gap-2">
+                      <Layers className="w-4 h-4 text-cyan-400" /> Active Cloud Hardware Keys ({deployedDevices.length})
+                    </h3>
+                    <p className="text-[11px] text-slate-400 mt-0.5">These physical keys are authorized for client connection.</p>
+                  </div>
+
+                  <div className="relative">
+                    <input
+                      type="text"
+                      placeholder="Filter keys..."
+                      value={deploySearchFilter}
+                      onChange={e => setDeploySearchFilter(e.target.value)}
+                      className="rounded-xl border border-slate-700 bg-slate-950 py-1.5 pl-8 pr-3 text-xs text-white placeholder-slate-500 focus:border-cyan-400 focus:outline-none"
+                    />
+                    <Search className="w-3.5 h-3.5 text-slate-500 absolute left-2.5 top-2.5 pointer-events-none" />
+                  </div>
+                </div>
+
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left text-xs text-slate-300">
+                    <thead className="bg-slate-950/80 text-[10px] uppercase font-bold text-slate-400 border-b border-slate-800">
+                      <tr>
+                        <th className="py-2.5 px-3">Device Key</th>
+                        <th className="py-2.5 px-3">Device Name</th>
+                        <th className="py-2.5 px-3">Project</th>
+                        <th className="py-2.5 px-3 text-right">Action</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-800/60 font-sans">
+                      {deployedDevices
+                        .filter(d =>
+                          !deploySearchFilter ||
+                          d.key.toLowerCase().includes(deploySearchFilter.toLowerCase()) ||
+                          d.name.toLowerCase().includes(deploySearchFilter.toLowerCase())
+                        )
+                        .map(device => (
+                          <tr key={device.key} className="hover:bg-slate-800/40 transition-colors">
+                            <td className="py-3 px-3 font-mono font-bold text-cyan-300 whitespace-nowrap">
+                              {device.key}
+                            </td>
+                            <td className="py-3 px-3 font-medium text-white">
+                              {device.name}
+                            </td>
+                            <td className="py-3 px-3 text-slate-400 whitespace-nowrap">
+                              <span className="px-2 py-0.5 rounded-md bg-slate-800 text-[10px] font-mono border border-slate-700">
+                                {device.project}
+                              </span>
+                            </td>
+                            <td className="py-3 px-3 text-right whitespace-nowrap space-x-1.5">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setSelectedDevice(device);
+                                  setActiveTab('dashboard');
+                                  window.scrollTo({ top: 0, behavior: 'smooth' });
+                                }}
+                                title="Open Dashboard"
+                                className="p-1.5 rounded-lg border border-slate-700 bg-slate-800 text-slate-300 hover:text-cyan-300 hover:border-cyan-400 transition-colors cursor-pointer"
+                              >
+                                <Cpu className="w-3.5 h-3.5" />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => void handleAdminRevokeKey(device.key)}
+                                title="Revoke and delete key"
+                                className="p-1.5 rounded-lg border border-red-500/30 bg-red-500/10 text-red-300 hover:bg-red-500/20 transition-colors cursor-pointer"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            </td>
+                          </tr>
+                        ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ================= 4. ADMIN ONLY: HARDWARE FLEET CATALOG ================= */}
+        {isAdmin && activeTab === 'fleet' && (
           <div className="space-y-8 animate-fadeIn">
             {/* Quick Connect Hero */}
             <section className="rounded-3xl border border-cyan-500/30 bg-gradient-to-r from-slate-900 via-slate-900/90 to-slate-950 p-6 sm:p-10 shadow-[0_0_35px_rgba(6,182,212,0.15)] space-y-5">
@@ -1439,15 +2352,9 @@ export default function IoTDevicePortal() {
                 <span className="inline-flex items-center gap-1.5 rounded-full border border-cyan-400/40 bg-cyan-400/10 px-3 py-1 text-xs font-bold uppercase tracking-widest text-cyan-300">
                   <Radio className="h-3.5 w-3.5 animate-pulse" /> Direct Hardware Connector
                 </span>
-                {!user && (
-                  <button
-                    type="button"
-                    onClick={() => setLoginModalOpen(true)}
-                    className="inline-flex items-center gap-1.5 rounded-xl border border-purple-500/40 bg-purple-500/10 px-3.5 py-1.5 text-xs font-bold text-purple-300 hover:bg-purple-500/20 cursor-pointer transition-all"
-                  >
-                    <User className="h-3.5 w-3.5" /> Client Sign In / Register
-                  </button>
-                )}
+                <span className="text-xs font-mono font-bold text-purple-300 bg-purple-500/10 px-3 py-1 rounded-full border border-purple-500/30">
+                  Admin Fleet Overview
+                </span>
               </div>
 
               <h2 className="text-3xl sm:text-5xl font-black tracking-tight text-white leading-tight">
@@ -1481,7 +2388,7 @@ export default function IoTDevicePortal() {
               <div className="space-y-2 pt-2">
                 <p className="text-xs font-bold uppercase tracking-wider text-slate-400">Quick Test Keys:</p>
                 <div className="flex flex-wrap gap-2">
-                  {defaultDevices.map(def => (
+                  {deployedDevices.slice(0, 8).map(def => (
                     <button
                       key={def.key}
                       type="button"
@@ -1509,19 +2416,19 @@ export default function IoTDevicePortal() {
             <section className="space-y-4">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                 <div>
-                  <h3 className="text-xl sm:text-2xl font-black text-white">Supported Hardware Devices</h3>
+                  <h3 className="text-xl sm:text-2xl font-black text-white">Supported Hardware Devices ({deployedDevices.length})</h3>
                   <p className="text-xs text-slate-400 mt-1">Select any verified hardware node to launch its live control interface and cloud telemetry.</p>
                 </div>
               </div>
 
               <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-                {defaultDevices.map(device => {
+                {deployedDevices.map(device => {
                   const isLight = device.project === 'light-control';
                   const isRelay = device.project === 'relay-test';
 
                   return (
                     <article
-                      key={device.id}
+                      key={device.key}
                       className={`flex flex-col justify-between p-5 rounded-2xl border transition-all duration-200 ${
                         isLight
                           ? 'border-amber-500/40 bg-gradient-to-br from-amber-500/10 via-slate-900 to-slate-950 shadow-[0_0_20px_rgba(245,158,11,0.1)]'
@@ -1561,7 +2468,7 @@ export default function IoTDevicePortal() {
                             ) : device.project === 'fan-regulator' ? (
                               <Wind className="h-4 w-4 text-blue-400 shrink-0" />
                             ) : (
-                              <FlaskConical className="h-4 w-4 text-purple-400 shrink-0" />
+                              <Shield className="h-4 w-4 text-purple-400 shrink-0" />
                             )}
                             {device.name}
                           </h4>
@@ -1594,139 +2501,135 @@ export default function IoTDevicePortal() {
             </section>
           </div>
         )}
-        {/* Hardware Fleet Navigation Bar */}
-        <div className="mb-6 space-y-3">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 rounded-2xl border border-slate-800 bg-slate-900/80 p-4">
-            <div className="flex items-center gap-3">
-              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-tr from-cyan-500 to-purple-600 text-black shrink-0 shadow-md shadow-cyan-500/20">
-                <Layers className="h-5 w-5 text-black" />
-              </div>
-              <div>
-                <div className="flex items-center gap-2">
-                  <span className="text-xs font-bold text-white uppercase tracking-wider">Active Hardware:</span>
-                  <span className={`font-mono text-xs font-bold px-2.5 py-0.5 rounded-lg border ${
-                    selectedDevice.project === 'light-control'
-                      ? 'bg-amber-500/15 text-amber-300 border-amber-500/40'
-                      : 'bg-cyan-500/15 text-cyan-300 border-cyan-500/40'
-                  }`}>
-                    {selectedDevice.key}
-                  </span>
-                </div>
-                <p className="text-xs text-slate-400 mt-0.5">{selectedDevice.name}</p>
-              </div>
-            </div>
 
-            <form onSubmit={handleKeySearch} className="flex items-center gap-2">
-              <input
-                type="text"
-                value={inputKey}
-                onChange={e => setInputKey(e.target.value)}
-                placeholder="Search key (e.g. GKB-LIGHT-0001V1)..."
-                className="rounded-xl border border-slate-700 bg-slate-950 px-3 py-1.5 text-xs text-white placeholder-slate-500 focus:border-cyan-400 focus:outline-none font-mono"
-              />
-              <button
-                type="submit"
-                disabled={linkBusy}
-                className="rounded-xl bg-cyan-500 px-3 py-1.5 text-xs font-bold text-black hover:bg-cyan-400 transition-colors cursor-pointer"
-              >
-                Open
-              </button>
-            </form>
-          </div>
-
-          {/* Quick Fleet Pills Switcher */}
-          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-2">
-            {defaultDevices.map(d => {
-              const isSelected = selectedDevice.key === d.key;
-              const isLight = d.project === 'light-control';
-              const isRelayPilot = d.project === 'relay-test';
-
-              return (
-                <button
-                  key={d.key}
-                  type="button"
-                  onClick={() => {
-                    setSelectedDevice(d);
-                    setActiveTab('dashboard');
-                    setLinkMessage('');
-                  }}
-                  className={`flex flex-col justify-between p-3 rounded-xl border text-left transition-all duration-200 cursor-pointer ${
-                    isSelected
-                      ? isLight
-                        ? 'border-amber-400/80 bg-amber-500/20 shadow-md shadow-amber-500/20 ring-1 ring-amber-400'
-                        : 'border-cyan-400/80 bg-cyan-500/20 shadow-md shadow-cyan-500/20 ring-1 ring-cyan-400'
-                      : 'border-slate-800/80 bg-slate-900/60 hover:border-slate-700 hover:bg-slate-900/90'
-                  }`}
-                >
-                  <div className="flex items-center justify-between gap-1 mb-1.5">
-                    <span className="font-mono text-[10px] text-slate-400 truncate">{d.key}</span>
-                    <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold uppercase ${
-                      isLight
-                        ? 'bg-amber-400/20 text-amber-300'
-                        : isRelayPilot
-                          ? 'bg-emerald-500/20 text-emerald-300'
-                          : 'bg-slate-800 text-slate-400'
-                    }`}>
-                      {isLight ? 'Target' : isRelayPilot ? 'Verified' : 'Fleet'}
-                    </span>
-                  </div>
-                  <div className="flex items-center gap-1.5">
-                    {isLight ? (
-                      <Lightbulb className={`h-3.5 w-3.5 shrink-0 ${isSelected ? 'text-amber-300 fill-amber-300' : 'text-amber-400'}`} />
-                    ) : isRelayPilot ? (
-                      <Cpu className={`h-3.5 w-3.5 shrink-0 ${isSelected ? 'text-cyan-300' : 'text-cyan-400'}`} />
-                    ) : d.project === 'water-tank-monitor' ? (
-                      <Droplets className="h-3.5 w-3.5 shrink-0 text-sky-400" />
-                    ) : d.project === 'fuel-tank-monitor' ? (
-                      <Fuel className="h-3.5 w-3.5 shrink-0 text-emerald-400" />
-                    ) : d.project === 'prepaid-energy-meter' ? (
-                      <Zap className="h-3.5 w-3.5 shrink-0 text-yellow-400" />
-                    ) : d.project === 'fan-regulator' ? (
-                      <Wind className="h-3.5 w-3.5 shrink-0 text-blue-400" />
-                    ) : (
-                      <FlaskConical className="h-3.5 w-3.5 shrink-0 text-purple-400" />
-                    )}
-                    <p className={`text-xs font-bold truncate ${isSelected ? 'text-white' : 'text-slate-300'}`}>
-                      {d.name.split('·')[0].replace('ESP32 ', '').replace('GKB ', '')}
-                    </p>
-                  </div>
-                </button>
-              );
-            })}
-          </div>
-        </div>
-
-        {linkMessage && (
-          <div className={`mb-6 p-3 rounded-xl text-xs border ${linkMessageIsError ? 'bg-amber-500/10 border-amber-500/30 text-amber-200' : 'bg-emerald-500/10 border-emerald-500/30 text-emerald-200'}`}>
-            {linkMessage}
-          </div>
-        )}
-
-        {/* ================= PRIMARY DASHBOARD VIEW ================= */}
+        {/* ================= 5. PRIMARY DASHBOARD VIEW ================= */}
         {activeTab === 'dashboard' && (
           <div className="space-y-6 animate-fadeIn">
-            {/* Top Back Navigation Bar */}
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3 rounded-2xl border border-slate-800 bg-slate-900/80">
+            {/* Top Navigation & Status Bar */}
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3.5 rounded-2xl border border-slate-800 bg-slate-900/90 shadow-md">
               <button
                 type="button"
                 onClick={() => {
-                  setActiveTab('fleet');
+                  setActiveTab(isAdmin ? 'fleet' : 'my-devices');
                   window.scrollTo({ top: 0, behavior: 'smooth' });
                 }}
                 className="inline-flex items-center gap-2 rounded-xl border border-slate-700 bg-slate-800 px-3.5 py-1.5 text-xs font-bold text-slate-200 hover:border-cyan-400 hover:text-cyan-300 transition-colors cursor-pointer w-fit"
               >
                 <ArrowRight className="h-4 w-4 rotate-180" />
-                Back to Hardware Fleet
+                {isAdmin ? 'Back to Hardware Fleet' : 'Back to My Devices'}
               </button>
 
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2">
                 <span className="text-xs text-slate-400">Active Node:</span>
-                <span className="text-xs font-mono font-bold text-cyan-300 bg-slate-950 px-3 py-1 rounded-lg border border-cyan-500/30">
-                  {selectedDevice.name} ({selectedDevice.key})
-                </span>
+                {selectedDevice ? (
+                  <span className="text-xs font-mono font-bold text-cyan-300 bg-slate-950 px-3 py-1 rounded-lg border border-cyan-500/30">
+                    {selectedDevice.name} ({selectedDevice.key})
+                  </span>
+                ) : (
+                  <span className="text-xs text-amber-300 bg-amber-500/10 px-3 py-1 rounded-lg border border-amber-500/30">
+                    No Device Selected
+                  </span>
+                )}
+                {selectedDevice && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setBleTargetDevice(selectedDevice);
+                      setBleModalOpen(true);
+                    }}
+                    className="inline-flex items-center gap-1.5 rounded-lg border border-cyan-500/30 bg-cyan-500/10 px-2.5 py-1 text-xs font-bold text-cyan-300 hover:bg-cyan-500/20 transition-colors cursor-pointer"
+                  >
+                    <Bluetooth className="w-3.5 h-3.5" />
+                    BLE Provision
+                  </button>
+                )}
               </div>
             </div>
-            {selectedDevice.project === 'relay-test' ? (
+
+            {/* Device Switcher Bar */}
+            {isAdmin ? (
+              /* Admin: Full Fleet Pills Switcher */
+              <div className="space-y-2">
+                <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Admin Fleet Quick Switcher:</p>
+                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-2">
+                  {deployedDevices.map(d => {
+                    const isSelected = selectedDevice?.key === d.key;
+                    return (
+                      <button
+                        key={d.key}
+                        type="button"
+                        onClick={() => {
+                          setSelectedDevice(d);
+                          setLinkMessage('');
+                        }}
+                        className={`p-2.5 rounded-xl border text-left transition-all text-xs cursor-pointer ${
+                          isSelected
+                            ? 'border-cyan-400 bg-cyan-500/20 shadow-md shadow-cyan-500/20 ring-1 ring-cyan-400'
+                            : 'border-slate-800 bg-slate-900/60 hover:bg-slate-850'
+                        }`}
+                      >
+                        <span className="block font-mono text-[10px] text-cyan-300 truncate">{d.key}</span>
+                        <span className="block font-bold text-white truncate mt-0.5">{d.name.split(' (')[0].replace('ESP32 ', '')}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            ) : (
+              /* Client: Only Their Linked Devices Switcher */
+              linkedDevices.length > 1 && (
+                <div className="space-y-2">
+                  <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">My Devices:</p>
+                  <div className="flex flex-wrap gap-2">
+                    {linkedDevices.map(d => {
+                      const isSelected = selectedDevice?.key === d.key;
+                      return (
+                        <button
+                          key={d.key}
+                          type="button"
+                          onClick={() => {
+                            setSelectedDevice(d);
+                            setLinkMessage('');
+                          }}
+                          className={`px-3 py-1.5 rounded-xl border text-xs font-bold transition-all cursor-pointer ${
+                            isSelected
+                              ? 'border-cyan-400 bg-cyan-500/20 text-cyan-300 ring-1 ring-cyan-400'
+                              : 'border-slate-800 bg-slate-900 text-slate-300 hover:border-slate-700'
+                          }`}
+                        >
+                          {d.name} ({d.key})
+                        </button>
+                      );
+                    })}
+                    <button
+                      type="button"
+                      onClick={() => setActiveTab('add-device')}
+                      className="px-3 py-1.5 rounded-xl border border-dashed border-cyan-500/40 text-cyan-400 text-xs font-bold hover:bg-cyan-500/10 transition-colors cursor-pointer"
+                    >
+                      + Add Another Device
+                    </button>
+                  </div>
+                </div>
+              )
+            )}
+
+            {/* Dashboard Component Display */}
+            {!selectedDevice ? (
+              <div className="p-12 text-center rounded-3xl border border-slate-800 bg-slate-900/50 space-y-4">
+                <Cpu className="w-12 h-12 text-cyan-400 mx-auto opacity-70" />
+                <h3 className="text-lg font-bold text-white">No Active Hardware Selected</h3>
+                <p className="text-xs text-slate-400 max-w-sm mx-auto">
+                  Please link a device using your hardware casing key or choose one from My Devices.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('add-device')}
+                  className="px-5 py-2.5 rounded-xl bg-cyan-500 text-black font-bold text-xs uppercase cursor-pointer"
+                >
+                  Add Device Key
+                </button>
+              </div>
+            ) : selectedDevice.project === 'relay-test' ? (
               <RelayTestDashboard mode="service" />
             ) : selectedDevice.project === 'light-control' ? (
               <LightControlDashboard mode="service" device={selectedDevice} />
@@ -1749,7 +2652,7 @@ export default function IoTDevicePortal() {
           </div>
         )}
 
-        {/* ================= SUPPORT VIEW ================= */}
+        {/* ================= 6. SUPPORT VIEW ================= */}
         {activeTab === 'support' && (
           <div className="max-w-3xl mx-auto space-y-6 animate-fadeIn">
             <div className="rounded-2xl border border-cyan-500/30 bg-slate-900/80 p-6 space-y-3">
@@ -1783,7 +2686,7 @@ export default function IoTDevicePortal() {
           </div>
         )}
 
-        {/* ================= CONTACT VIEW ================= */}
+        {/* ================= 7. CONTACT VIEW ================= */}
         {activeTab === 'contact' && (
           <div className="max-w-2xl mx-auto space-y-6 animate-fadeIn text-center">
             <div className="rounded-2xl border border-cyan-500/30 bg-slate-900/80 p-8 space-y-4">
@@ -1799,6 +2702,30 @@ export default function IoTDevicePortal() {
           </div>
         )}
       </main>
+
+      {/* Global Bluetooth Provisioning Modal */}
+      <BleProvisioningModal
+        isOpen={bleModalOpen}
+        onClose={() => {
+          setBleModalOpen(false);
+          if (selectedDevice) {
+            setActiveTab('dashboard');
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+          }
+        }}
+        onDeviceProvisioned={() => {
+          setBleModalOpen(false);
+          if (selectedDevice) {
+            setActiveTab('dashboard');
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+          }
+        }}
+        initialDeviceKey={bleTargetDevice?.key || selectedDevice?.key || 'GKB-RELAY-0001'}
+        deviceKey={bleTargetDevice?.key || selectedDevice?.key}
+        deviceName={bleTargetDevice?.name || selectedDevice?.name}
+        channelVariant={bleTargetDevice?.relayChannels || selectedDevice?.relayChannels}
+        initialPhone={user?.phone}
+      />
 
       {/* Login Modal */}
       {loginModalOpen && (
