@@ -11,7 +11,8 @@ import {
   User, Lock, LogOut, CheckCircle, AlertTriangle,
   ArrowRight, Sun, Moon, Zap, Wifi, Radio, Key,
   Copy, Download, Code, Check, Printer, Bluetooth, QrCode, X, RefreshCw,
-  Layers, Lightbulb, Power, Droplets, Fuel, Gauge, Wind, FlaskConical
+  Layers, Lightbulb, Power, Droplets, Fuel, Gauge, Wind, FlaskConical,
+  ShieldCheck, Sparkles, MapPin
 } from 'lucide-react';
 
 type UserType = {
@@ -820,6 +821,7 @@ export default function IoTDevicePortal() {
     () => window.localStorage.getItem('gkb-theme') === 'light'
   );
   const [user, setUser] = useState<UserType | null>(null);
+  const [sessionLoading, setSessionLoading] = useState(true);
   const [loginModalOpen, setLoginModalOpen] = useState(false);
   const [loginEmail, setLoginEmail] = useState('');
   const [loginPassword, setLoginPassword] = useState('');
@@ -849,7 +851,6 @@ export default function IoTDevicePortal() {
     window.localStorage.setItem('gkb-theme', isLightMode ? 'light' : 'dark');
   }, [isLightMode]);
 
-
   // Auth session
   const applyPortalSession = useCallback(async (session: Session | null) => {
     if (!session?.user.email && !session?.user.phone) {
@@ -857,34 +858,63 @@ export default function IoTDevicePortal() {
       return;
     }
     const metadata = session.user.user_metadata;
+    let role: 'admin' | 'client' = (metadata?.role === 'admin' || session.user.email?.toLowerCase() === 'zumkel023@gmail.com') ? 'admin' : 'client';
+    if (relaySupabase) {
+      try {
+        const { data } = await relaySupabase
+          .from('gkb_user_roles')
+          .select('role')
+          .eq('user_id', session.user.id)
+          .maybeSingle();
+        if (data?.role === 'admin') role = 'admin';
+      } catch {
+        // ignore fallback
+      }
+    }
     const account: UserType = {
       id: session.user.id,
-      role: (metadata?.role === 'admin' || session.user.email?.toLowerCase() === 'zumkel023@gmail.com') ? 'admin' : 'client',
+      role,
       email: session.user.email || '',
-      firstName: metadata?.first_name || '',
-      lastName: metadata?.last_name || '',
-      phone: session.user.phone || metadata?.phone || '',
-      location: metadata?.location || ''
+      firstName: typeof metadata?.first_name === 'string' ? metadata.first_name : '',
+      lastName: typeof metadata?.last_name === 'string' ? metadata.last_name : '',
+      phone: session.user.phone || (typeof metadata?.phone === 'string' ? metadata.phone : ''),
+      location: typeof metadata?.location === 'string' ? metadata.location : ''
     };
     setUser(account);
   }, []);
 
   useEffect(() => {
-    if (!relaySupabase) return;
+    if (!relaySupabase) {
+      setSessionLoading(false);
+      return;
+    }
+    let disposed = false;
     const { data: { subscription } } = relaySupabase.auth.onAuthStateChange((_event, session) => {
-      void applyPortalSession(session);
+      if (!disposed) {
+        void applyPortalSession(session);
+        setSessionLoading(false);
+      }
     });
     void relaySupabase.auth.getSession().then(({ data }) => {
-      void applyPortalSession(data.session);
+      if (!disposed) {
+        void applyPortalSession(data.session);
+        setSessionLoading(false);
+      }
+    }).catch(() => {
+      if (!disposed) setSessionLoading(false);
     });
     return () => {
+      disposed = true;
       subscription.unsubscribe();
     };
   }, [applyPortalSession]);
 
   const handleAuthSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!relaySupabase) return;
+    if (!relaySupabase) {
+      setLoginError(relaySupabaseConfigError || 'Database connection error.');
+      return;
+    }
     setLoginBusy(true);
     setLoginError('');
     setLoginMessage('');
@@ -895,6 +925,7 @@ export default function IoTDevicePortal() {
           email: loginEmail.trim(),
           password: loginPassword,
           options: {
+            emailRedirectTo: window.location.origin,
             data: {
               first_name: signupFirstName.trim(),
               last_name: signupLastName.trim(),
@@ -904,16 +935,40 @@ export default function IoTDevicePortal() {
           }
         });
         if (error) throw error;
-        setLoginMessage(data.session ? 'Account created and signed in!' : 'Account registered! Please sign in.');
-        if (data.session) setLoginModalOpen(false);
+        if (!data.session) {
+          setLoginMessage('Account created! Check your email to confirm your address, then sign in.');
+          setCreatingAccount(false);
+          setLoginPassword('');
+          return;
+        }
       } else {
-        const { error } = await relaySupabase.auth.signInWithPassword({
-          email: loginEmail.trim(),
-          password: loginPassword
-        });
+        const identifier = loginEmail.trim();
+        const credentials = identifier.includes('@')
+          ? { email: identifier, password: loginPassword }
+          : { phone: identifier, password: loginPassword };
+        const { error } = await relaySupabase.auth.signInWithPassword(credentials);
         if (error) throw error;
-        setLoginModalOpen(false);
       }
+      setLoginModalOpen(false);
+      setLoginError('');
+      setLoginMessage('');
+    } catch (err) {
+      setLoginError(formatSupabaseError(err));
+    } finally {
+      setLoginBusy(false);
+    }
+  };
+
+  const handleResendConfirmation = async () => {
+    if (!loginEmail.trim() || !relaySupabase) return;
+    setLoginBusy(true);
+    try {
+      const { error } = await relaySupabase.auth.resend({
+        type: 'signup',
+        email: loginEmail.trim()
+      });
+      if (error) throw error;
+      setLoginMessage('Confirmation email resent. Check your inbox and spam folder.');
     } catch (err) {
       setLoginError(formatSupabaseError(err));
     } finally {
@@ -957,6 +1012,284 @@ export default function IoTDevicePortal() {
     }
     setLinkBusy(false);
   };
+
+  if (sessionLoading) {
+    return (
+      <div className={`min-h-screen ${isLightMode ? 'bg-slate-100 text-slate-900' : 'bg-slate-950 text-slate-100'} font-sans flex flex-col items-center justify-center p-6 text-center space-y-4`}>
+        <div className="relative">
+          <div className="w-16 h-16 rounded-2xl bg-gradient-to-tr from-cyan-500 to-purple-600 animate-spin blur-lg opacity-70" />
+          <div className="absolute inset-0 flex items-center justify-center">
+            <Cpu className="w-8 h-8 text-cyan-300 animate-pulse" />
+          </div>
+        </div>
+        <div className="space-y-1">
+          <p className="text-sm font-mono font-bold tracking-wider text-cyan-400 uppercase">GKB Security Gateway</p>
+          <p className="text-xs text-slate-400">Verifying security token and session credentials...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!user) {
+    return (
+      <div className={`min-h-screen ${isLightMode ? 'bg-slate-100 text-slate-900' : 'bg-slate-950 text-slate-100'} font-sans relative overflow-x-hidden flex flex-col justify-between`}>
+        {/* Ambient Glows */}
+        <div className="absolute top-0 left-1/4 w-96 h-96 bg-cyan-600/15 rounded-full blur-[140px] pointer-events-none" />
+        <div className="absolute bottom-1/4 right-1/4 w-96 h-96 bg-purple-600/15 rounded-full blur-[140px] pointer-events-none" />
+
+        {/* Minimal Gate Header */}
+        <header className="border-b border-cyan-500/20 bg-slate-950/70 backdrop-blur-md px-6 py-4 flex items-center justify-between relative z-20">
+          <div className="flex items-center space-x-3">
+            <img
+              src="/gkb-company-logo.png"
+              alt="GKB Technologies logo"
+              className="h-10 w-10 shrink-0 rounded-lg object-contain bg-slate-900 border border-cyan-500/30 p-1 shadow-[0_0_15px_rgba(6,182,212,0.2)]"
+            />
+            <div>
+              <span className="text-base font-black tracking-wider bg-gradient-to-r from-cyan-400 via-sky-300 to-purple-400 bg-clip-text text-transparent">
+                GKB TECHNOLOGIES
+              </span>
+              <p className="text-[10px] text-cyan-400/70 tracking-widest uppercase">IoT Hardware Fleet Cloud</p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => setIsLightMode(!isLightMode)}
+            className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-cyan-500/30 bg-slate-900 px-3 py-1.5 text-xs text-slate-300 hover:text-cyan-300 cursor-pointer"
+          >
+            {isLightMode ? <Moon className="h-3.5 w-3.5" /> : <Sun className="h-3.5 w-3.5" />}
+            <span className="hidden sm:inline">{isLightMode ? 'Dark' : 'Light'}</span>
+          </button>
+        </header>
+
+        {/* Auth Gate Card */}
+        <main className="flex-1 flex items-center justify-center p-4 sm:p-6 py-12 relative z-10">
+          <div className="w-full max-w-lg space-y-6 rounded-3xl border border-cyan-500/30 bg-slate-900/90 p-6 sm:p-8 shadow-[0_0_60px_rgba(6,182,212,0.15)] backdrop-blur-xl animate-fadeIn">
+            <div className="text-center space-y-2">
+              <div className="inline-flex items-center justify-center w-12 h-12 rounded-2xl bg-cyan-500/10 border border-cyan-500/40 text-cyan-300 mb-1 shadow-[0_0_20px_rgba(6,182,212,0.25)]">
+                <Lock className="w-6 h-6" />
+              </div>
+              <h2 className="text-2xl font-black tracking-tight text-white">GKB Fleet Access</h2>
+              <p className="text-xs text-slate-400 max-w-sm mx-auto leading-relaxed">
+                Sign in to monitor and control your deployed smart hardware, or create a new client account.
+              </p>
+            </div>
+
+            {/* Tablist Switcher */}
+            <div role="tablist" aria-label="Account access" className="grid grid-cols-2 rounded-xl border border-slate-800 bg-slate-950 p-1">
+              <button
+                type="button"
+                role="tab"
+                aria-selected={!creatingAccount}
+                disabled={loginBusy}
+                onClick={() => {
+                  setCreatingAccount(false);
+                  setLoginError('');
+                  setLoginMessage('');
+                }}
+                className={`rounded-lg px-4 py-2.5 text-xs font-bold uppercase tracking-wider transition-all cursor-pointer ${
+                  !creatingAccount
+                    ? 'bg-gradient-to-r from-cyan-500 to-cyan-400 text-slate-950 shadow-[0_0_15px_rgba(6,182,212,0.35)]'
+                    : 'text-slate-400 hover:text-white'
+                }`}
+              >
+                Sign In
+              </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={creatingAccount}
+                disabled={loginBusy}
+                onClick={() => {
+                  setCreatingAccount(true);
+                  setLoginError('');
+                  setLoginMessage('');
+                }}
+                className={`rounded-lg px-4 py-2.5 text-xs font-bold uppercase tracking-wider transition-all cursor-pointer ${
+                  creatingAccount
+                    ? 'bg-gradient-to-r from-cyan-500 to-cyan-400 text-slate-950 shadow-[0_0_15px_rgba(6,182,212,0.35)]'
+                    : 'text-slate-400 hover:text-white'
+                }`}
+              >
+                Create Account
+              </button>
+            </div>
+
+            {/* Error & Message Banners */}
+            {loginError && (
+              <div className="p-3.5 rounded-xl bg-red-500/10 border border-red-500/30 text-red-400 text-xs flex items-start gap-2 animate-fadeIn">
+                <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
+                <span className="leading-relaxed">{loginError}</span>
+              </div>
+            )}
+            {loginMessage && (
+              <div role="status" className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-3.5 text-xs text-emerald-200 flex items-start gap-2 animate-fadeIn">
+                <CheckCircle className="h-4 w-4 shrink-0 mt-0.5 text-emerald-400" />
+                <span className="leading-relaxed">{loginMessage}</span>
+              </div>
+            )}
+
+            {/* Form */}
+            <form onSubmit={handleAuthSubmit} className="space-y-4">
+              {creatingAccount && (
+                <>
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <label className="block text-xs font-medium text-slate-400">
+                      First Name
+                      <input
+                        type="text"
+                        autoComplete="given-name"
+                        maxLength={80}
+                        placeholder="John"
+                        value={signupFirstName}
+                        onChange={event => setSignupFirstName(event.target.value)}
+                        className="mt-1 w-full rounded-xl border border-slate-800 bg-slate-950 px-3.5 py-2.5 text-xs text-white focus:border-cyan-400 focus:outline-none transition-colors"
+                        required
+                      />
+                    </label>
+                    <label className="block text-xs font-medium text-slate-400">
+                      Last Name
+                      <input
+                        type="text"
+                        autoComplete="family-name"
+                        maxLength={80}
+                        placeholder="Doe"
+                        value={signupLastName}
+                        onChange={event => setSignupLastName(event.target.value)}
+                        className="mt-1 w-full rounded-xl border border-slate-800 bg-slate-950 px-3.5 py-2.5 text-xs text-white focus:border-cyan-400 focus:outline-none transition-colors"
+                        required
+                      />
+                    </label>
+                  </div>
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <label className="block text-xs font-medium text-slate-400">
+                      Phone Number
+                      <input
+                        type="tel"
+                        autoComplete="tel"
+                        maxLength={30}
+                        placeholder="+233 24 000 0000"
+                        value={signupPhone}
+                        onChange={event => setSignupPhone(event.target.value)}
+                        className="mt-1 w-full rounded-xl border border-slate-800 bg-slate-950 px-3.5 py-2.5 text-xs text-white focus:border-cyan-400 focus:outline-none transition-colors"
+                        required
+                      />
+                    </label>
+                    <label className="block text-xs font-medium text-slate-400">
+                      Location / City
+                      <input
+                        type="text"
+                        autoComplete="address-level2"
+                        maxLength={160}
+                        placeholder="Accra, Ghana"
+                        value={signupLocation}
+                        onChange={event => setSignupLocation(event.target.value)}
+                        className="mt-1 w-full rounded-xl border border-slate-800 bg-slate-950 px-3.5 py-2.5 text-xs text-white focus:border-cyan-400 focus:outline-none transition-colors"
+                        required
+                      />
+                    </label>
+                  </div>
+                </>
+              )}
+
+              <div>
+                <label className="text-xs font-medium text-slate-400 mb-1 block">
+                  {creatingAccount ? 'Email Address' : 'Email or Phone Number'}
+                </label>
+                <div className="relative">
+                  <input
+                    type={creatingAccount ? 'email' : 'text'}
+                    autoComplete={creatingAccount ? 'email' : 'username'}
+                    placeholder={creatingAccount ? 'name@example.com' : 'you@example.com or +233…'}
+                    value={loginEmail}
+                    onChange={e => setLoginEmail(e.target.value)}
+                    className="w-full pl-10 pr-4 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white focus:border-cyan-400 focus:outline-none transition-colors"
+                    required
+                  />
+                  <Mail className="w-4 h-4 text-slate-500 absolute left-3.5 top-3 pointer-events-none" />
+                </div>
+              </div>
+
+              <div>
+                <label className="text-xs font-medium text-slate-400 mb-1 block">Password</label>
+                <div className="relative">
+                  <input
+                    type="password"
+                    autoComplete={creatingAccount ? 'new-password' : 'current-password'}
+                    minLength={6}
+                    placeholder="••••••••"
+                    value={loginPassword}
+                    onChange={e => setLoginPassword(e.target.value)}
+                    className="w-full pl-10 pr-4 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white focus:border-cyan-400 focus:outline-none transition-colors"
+                    required
+                  />
+                  <Lock className="w-4 h-4 text-slate-500 absolute left-3.5 top-3 pointer-events-none" />
+                </div>
+              </div>
+
+              <button
+                type="submit"
+                disabled={loginBusy}
+                className="w-full py-3 bg-gradient-to-r from-cyan-500 via-sky-400 to-purple-600 text-slate-950 font-black rounded-xl text-xs uppercase tracking-wider shadow-[0_0_20px_rgba(6,182,212,0.4)] hover:brightness-110 transition-all disabled:opacity-50 cursor-pointer flex items-center justify-center gap-2"
+              >
+                {loginBusy ? (
+                  <>
+                    <RefreshCw className="w-4 h-4 animate-spin" />
+                    <span>Authenticating...</span>
+                  </>
+                ) : creatingAccount ? (
+                  <>
+                    <Sparkles className="w-4 h-4" />
+                    <span>Create Client Account</span>
+                  </>
+                ) : (
+                  <>
+                    <Lock className="w-4 h-4" />
+                    <span>Sign In to GKB Fleet</span>
+                  </>
+                )}
+              </button>
+            </form>
+
+            {/* Resend confirmation if needed */}
+            {loginMessage.includes('confirm your address') && (
+              <div className="text-center pt-2">
+                <button
+                  type="button"
+                  disabled={loginBusy}
+                  onClick={() => void handleResendConfirmation()}
+                  className="text-xs font-semibold text-cyan-300 hover:text-cyan-200 transition-colors underline cursor-pointer"
+                >
+                  Resend confirmation email
+                </button>
+              </div>
+            )}
+
+            {/* Security Badges */}
+            <div className="pt-4 border-t border-slate-800/80 grid grid-cols-3 gap-2 text-[10px] text-slate-400 text-center font-mono">
+              <div className="flex flex-col items-center gap-1">
+                <ShieldCheck className="w-4 h-4 text-cyan-400" />
+                <span>256-Bit TLS</span>
+              </div>
+              <div className="flex flex-col items-center gap-1">
+                <Wifi className="w-4 h-4 text-purple-400" />
+                <span>Supabase RLS</span>
+              </div>
+              <div className="flex flex-col items-center gap-1">
+                <QrCode className="w-4 h-4 text-amber-400" />
+                <span>Hardware QR Guard</span>
+              </div>
+            </div>
+          </div>
+        </main>
+
+        {/* Minimal Gate Footer */}
+        <footer className="border-t border-slate-800/60 bg-slate-950/60 py-4 px-6 text-center text-[11px] text-slate-500 font-mono">
+          God Knows Best • Built Beyond Limits • GKB Technologies IoT Fleet
+        </footer>
+      </div>
+    );
+  }
 
   return (
     <div className={`min-h-screen ${isLightMode ? 'bg-slate-100 text-slate-900' : 'bg-slate-950 text-slate-100'} font-sans relative overflow-x-hidden`}>
@@ -1038,25 +1371,26 @@ export default function IoTDevicePortal() {
               <span className="hidden sm:inline">{isLightMode ? 'Dark' : 'Light'}</span>
             </button>
 
-            {user ? (
-              <div className="flex items-center space-x-2 bg-slate-900 px-3 py-1.5 rounded-lg border border-purple-500/30">
-                <span className="text-xs font-bold text-slate-200">{user.firstName || user.email}</span>
+            {user && (
+              <div className="flex items-center space-x-2 bg-slate-900 px-3 py-1.5 rounded-xl border border-cyan-500/30 shadow-[0_0_12px_rgba(6,182,212,0.15)]">
+                <div className="flex items-center gap-1.5">
+                  <div className="w-6 h-6 rounded-lg bg-gradient-to-tr from-cyan-500 to-purple-600 flex items-center justify-center text-[10px] font-black text-black">
+                    {(user.firstName ? user.firstName[0] : (user.email[0] || 'U')).toUpperCase()}
+                  </div>
+                  <div className="hidden sm:block text-left">
+                    <p className="text-xs font-bold text-white leading-none">{user.firstName ? `${user.firstName} ${user.lastName}` : user.email}</p>
+                    <span className="text-[9px] uppercase font-mono text-cyan-400 font-semibold">{user.role}</span>
+                  </div>
+                </div>
                 <button
                   type="button"
                   onClick={() => void handleSignOut()}
-                  className="text-slate-400 hover:text-red-400 text-xs cursor-pointer ml-1"
+                  title="Sign out of GKB IoT Portal"
+                  className="text-slate-400 hover:text-red-400 text-xs cursor-pointer p-1 rounded-lg hover:bg-slate-800 transition-colors ml-1"
                 >
                   <LogOut className="h-3.5 w-3.5" />
                 </button>
               </div>
-            ) : (
-              <button
-                type="button"
-                onClick={() => setLoginModalOpen(true)}
-                className="inline-flex items-center gap-1.5 rounded-lg bg-gradient-to-r from-cyan-500 to-purple-600 px-3 py-1.5 text-xs font-bold text-black shadow-md hover:opacity-90 cursor-pointer"
-              >
-                <User className="h-3.5 w-3.5" /> Sign In
-              </button>
             )}
           </div>
         </div>
