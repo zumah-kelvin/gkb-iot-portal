@@ -7,7 +7,7 @@ import WaterTankDashboard from './WaterTankDashboard';
 import SmartSecurityDashboard from './SmartSecurityDashboard';
 import FanRegulatorDashboard from './FanRegulatorDashboard';
 import {
-  Cpu, Shield, Wrench, Phone, Mail, Globe,
+  Cpu, Shield, Wrench, Phone, PhoneCall, Mail, Globe,
   User, Lock, LogOut, CheckCircle, AlertTriangle,
   ArrowRight, Sun, Moon, Zap, Wifi, Radio, Key,
   Copy, Download, Code, Check, Printer, Bluetooth, QrCode, X, RefreshCw,
@@ -3446,16 +3446,181 @@ export default function IoTDevicePortal() {
 
         {/* ================= 7. CONTACT VIEW ================= */}
         {activeTab === 'contact' && (
-          <div className="max-w-2xl mx-auto space-y-6 animate-fadeIn text-center">
-            <div className="rounded-2xl border border-cyan-500/30 bg-slate-900/80 p-8 space-y-4">
-              <h3 className="text-2xl font-black text-white">GKB Technologies Hardware Engineering</h3>
-              <p className="text-xs text-slate-300 leading-relaxed max-w-lg mx-auto">
+          <div className="max-w-4xl mx-auto space-y-8 animate-fadeIn">
+            {/* Header Banner */}
+            <div className="text-center rounded-3xl border border-cyan-500/30 bg-gradient-to-b from-slate-900/90 to-slate-950/90 p-8 sm:p-10 space-y-4 shadow-[0_0_40px_rgba(6,182,212,0.15)] relative overflow-hidden">
+              <div className="absolute top-0 right-1/4 w-72 h-72 bg-cyan-500/10 rounded-full blur-3xl pointer-events-none" />
+              <div className="absolute bottom-0 left-1/4 w-72 h-72 bg-purple-500/10 rounded-full blur-3xl pointer-events-none" />
+
+              <span className="inline-flex items-center gap-1.5 rounded-full border border-cyan-400/40 bg-cyan-400/10 px-3.5 py-1 text-xs font-bold uppercase tracking-widest text-cyan-300">
+                <Radio className="h-3.5 w-3.5 animate-pulse" /> Direct Engineering Support
+              </span>
+
+              <h2 className="text-2xl sm:text-4xl font-black text-white tracking-tight">
+                GKB Technologies Hardware Engineering
+              </h2>
+              <p className="text-xs sm:text-sm text-slate-300 leading-relaxed max-w-2xl mx-auto">
                 Dedicated client & enterprise engineering support for IoT telemetry nodes, microcontroller firmware, and embedded relay controllers.
               </p>
-              <div className="flex flex-wrap items-center justify-center gap-4 text-xs font-mono text-cyan-300 pt-3">
-                <span className="flex items-center gap-1.5"><Mail className="h-4 w-4 text-cyan-400" /> support@gkb-technologies.com</span>
-                <span className="flex items-center gap-1.5"><Globe className="h-4 w-4 text-purple-400" /> https://gkb-devices.netlify.app</span>
+
+              <div className="flex flex-wrap items-center justify-center gap-3 text-xs font-mono text-cyan-300 pt-2">
+                <a
+                  href="mailto:support@gkb-technologies.com"
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-900 border border-slate-800 hover:border-cyan-400 hover:text-cyan-200 transition-colors"
+                >
+                  <Mail className="h-4 w-4 text-cyan-400" /> support@gkb-technologies.com
+                </a>
+                <a
+                  href="https://gkb-devices.netlify.app"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-900 border border-slate-800 hover:border-purple-400 hover:text-purple-200 transition-colors"
+                >
+                  <Globe className="h-4 w-4 text-purple-400" /> https://gkb-devices.netlify.app
+                </a>
               </div>
+            </div>
+
+            {/* Responsive Interactive Contact Buttons Grid */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-6">
+              {/* WhatsApp Button */}
+              <a
+                href="https://wa.me/233552117787"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="group relative flex items-center justify-between p-5 sm:p-6 rounded-2xl bg-gradient-to-r from-emerald-500/10 via-emerald-600/10 to-slate-900/90 border border-emerald-500/40 hover:border-emerald-400 shadow-[0_0_20px_rgba(16,185,129,0.15)] hover:shadow-[0_0_30px_rgba(16,185,129,0.3)] transition-all duration-300 hover:scale-[1.02] cursor-pointer"
+              >
+                <div className="flex items-center gap-4">
+                  <div className="w-12 h-12 rounded-2xl bg-emerald-500/20 border border-emerald-500/40 flex items-center justify-center text-emerald-400 group-hover:scale-110 transition-transform">
+                    {/* Authentic WhatsApp SVG */}
+                    <svg className="w-6 h-6 fill-current text-emerald-400" viewBox="0 0 24 24">
+                      <path d="M.057 24l1.687-6.163c-1.041-1.804-1.588-3.849-1.587-5.946.003-6.556 5.338-11.891 11.893-11.891 3.181.001 6.167 1.24 8.413 3.488 2.245 2.248 3.481 5.236 3.48 8.414-.003 6.557-5.338 11.892-11.893 11.892-1.99-.001-3.951-.5-5.688-1.448l-6.305 1.654zm6.597-3.807c1.676.995 3.276 1.591 5.392 1.592 5.448 0 9.886-4.434 9.889-9.885.002-5.462-4.415-9.89-9.881-9.892-5.452 0-9.887 4.434-9.889 9.884-.001 2.225.651 3.891 1.746 5.634l-.999 3.648 3.742-.981zm11.387-5.464c-.074-.124-.272-.198-.57-.347-.297-.149-1.758-.868-2.031-.967-.272-.099-.47-.149-.669.149-.198.297-.768.967-.941 1.165-.173.198-.347.223-.644.074-.297-.149-1.255-.462-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.297-.347.446-.521.151-.172.2-.296.3-.495.099-.198.05-.372-.025-.521-.075-.148-.669-1.611-.916-2.206-.242-.579-.487-.501-.669-.51l-.57-.01c-.198 0-.52.074-.792.372s-1.04 1.016-1.04 2.479 1.065 2.876 1.213 3.074c.149.198 2.095 3.2 5.076 4.487.709.306 1.263.489 1.694.626.712.226 1.36.194 1.872.118.571-.085 1.758-.719 2.006-1.413.248-.695.248-1.29.173-1.414z"/>
+                    </svg>
+                  </div>
+                  <div className="text-left">
+                    <div className="flex items-center gap-2">
+                      <h3 className="text-base font-bold text-white group-hover:text-emerald-300 transition-colors">
+                        WhatsApp
+                      </h3>
+                      <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                        Chat
+                      </span>
+                    </div>
+                    <p className="text-sm font-mono text-emerald-400 font-bold mt-0.5">
+                      +233 552 117 787
+                    </p>
+                    <p className="text-[11px] text-slate-400 mt-1">
+                      Direct WhatsApp message & technician support
+                    </p>
+                  </div>
+                </div>
+                <div className="shrink-0 p-2.5 rounded-xl bg-emerald-500/20 border border-emerald-500/40 text-emerald-300 group-hover:bg-emerald-500 group-hover:text-slate-950 transition-all">
+                  <ExternalLink className="w-4 h-4" />
+                </div>
+              </a>
+
+              {/* Direct Phone Call Button */}
+              <a
+                href="tel:+233552117787"
+                className="group relative flex items-center justify-between p-5 sm:p-6 rounded-2xl bg-gradient-to-r from-cyan-500/10 via-sky-600/10 to-slate-900/90 border border-cyan-500/40 hover:border-cyan-400 shadow-[0_0_20px_rgba(6,182,212,0.15)] hover:shadow-[0_0_30px_rgba(6,182,212,0.3)] transition-all duration-300 hover:scale-[1.02] cursor-pointer"
+              >
+                <div className="flex items-center gap-4">
+                  <div className="w-12 h-12 rounded-2xl bg-cyan-500/20 border border-cyan-500/40 flex items-center justify-center text-cyan-400 group-hover:scale-110 transition-transform">
+                    <PhoneCall className="w-6 h-6 text-cyan-400" />
+                  </div>
+                  <div className="text-left">
+                    <div className="flex items-center gap-2">
+                      <h3 className="text-base font-bold text-white group-hover:text-cyan-300 transition-colors">
+                        Direct Phone Call
+                      </h3>
+                      <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-cyan-500/20 text-cyan-300 border border-cyan-500/30">
+                        Voice
+                      </span>
+                    </div>
+                    <p className="text-sm font-mono text-cyan-400 font-bold mt-0.5">
+                      +233 552 117 787
+                    </p>
+                    <p className="text-[11px] text-slate-400 mt-1">
+                      One-tap cellular phone call to lead engineering
+                    </p>
+                  </div>
+                </div>
+                <div className="shrink-0 p-2.5 rounded-xl bg-cyan-500/20 border border-cyan-500/40 text-cyan-300 group-hover:bg-cyan-500 group-hover:text-slate-950 transition-all">
+                  <Phone className="w-4 h-4" />
+                </div>
+              </a>
+
+              {/* Instagram Button */}
+              <a
+                href="https://instagram.com/gkb_technologies"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="group relative flex items-center justify-between p-5 sm:p-6 rounded-2xl bg-gradient-to-r from-pink-500/10 via-purple-600/10 to-slate-900/90 border border-pink-500/40 hover:border-pink-400 shadow-[0_0_20px_rgba(236,72,153,0.15)] hover:shadow-[0_0_30px_rgba(236,72,153,0.3)] transition-all duration-300 hover:scale-[1.02] cursor-pointer"
+              >
+                <div className="flex items-center gap-4">
+                  <div className="w-12 h-12 rounded-2xl bg-gradient-to-tr from-pink-500/20 to-purple-500/20 border border-pink-500/40 flex items-center justify-center text-pink-400 group-hover:scale-110 transition-transform">
+                    {/* Authentic Instagram SVG */}
+                    <svg className="w-6 h-6 fill-current text-pink-400" viewBox="0 0 24 24">
+                      <path d="M12 2.163c3.204 0 3.584.012 4.85.07 3.252.148 4.771 1.691 4.919 4.919.058 1.265.069 1.645.069 4.849 0 3.205-.012 3.584-.069 4.849-.149 3.225-1.664 4.771-4.919 4.919-1.266.058-1.644.07-4.85.07-3.204 0-3.584-.012-4.849-.07-3.26-.149-4.771-1.699-4.919-4.92-.058-1.265-.07-1.644-.07-4.849 0-3.204.013-3.583.07-4.849.149-3.227 1.664-4.771 4.919-4.919 1.266-.057 1.645-.069 4.849-.069zm0-2.163c-3.259 0-3.667.014-4.947.072-4.358.2-6.78 2.618-6.98 6.98-.059 1.281-.073 1.689-.073 4.948 0 3.259.014 3.668.072 4.948.2 4.358 2.618 6.78 6.98 6.98 1.281.058 1.689.072 4.948.072 3.259 0 3.668-.014 4.948-.072 4.354-.2 6.782-2.618 6.979-6.98.059-1.28.073-1.689.073-4.948 0-3.259-.014-3.667-.072-4.947-.196-4.354-2.617-6.78-6.979-6.98-1.281-.059-1.69-.073-4.949-.073zm0 5.838c-3.403 0-6.162 2.759-6.162 6.162s2.759 6.163 6.162 6.163 6.162-2.759 6.162-6.163c0-3.403-2.759-6.162-6.162-6.162zm0 10.162c-2.209 0-4-1.79-4-4 0-2.209 1.791-4 4-4s4 1.791 4 4c0 2.21-1.791 4-4 4zm6.406-11.845c-.796 0-1.441.645-1.441 1.44s.645 1.44 1.441 1.44c.795 0 1.439-.645 1.439-1.44s-.644-1.44-1.439-1.44z"/>
+                    </svg>
+                  </div>
+                  <div className="text-left">
+                    <div className="flex items-center gap-2">
+                      <h3 className="text-base font-bold text-white group-hover:text-pink-300 transition-colors">
+                        Instagram
+                      </h3>
+                      <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-pink-500/20 text-pink-300 border border-pink-500/30">
+                        Official
+                      </span>
+                    </div>
+                    <p className="text-sm font-mono text-pink-400 font-bold mt-0.5">
+                      @gkb_technologies
+                    </p>
+                    <p className="text-[11px] text-slate-400 mt-1">
+                      Product updates, live demonstrations & reels
+                    </p>
+                  </div>
+                </div>
+                <div className="shrink-0 p-2.5 rounded-xl bg-pink-500/20 border border-pink-500/40 text-pink-300 group-hover:bg-pink-500 group-hover:text-slate-950 transition-all">
+                  <ExternalLink className="w-4 h-4" />
+                </div>
+              </a>
+
+              {/* TikTok Button */}
+              <a
+                href="https://www.tiktok.com/@gkbtech"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="group relative flex items-center justify-between p-5 sm:p-6 rounded-2xl bg-gradient-to-r from-purple-500/10 via-slate-900 to-cyan-500/10 border border-purple-500/40 hover:border-cyan-400 shadow-[0_0_20px_rgba(168,85,247,0.15)] hover:shadow-[0_0_30px_rgba(6,182,212,0.25)] transition-all duration-300 hover:scale-[1.02] cursor-pointer"
+              >
+                <div className="flex items-center gap-4">
+                  <div className="w-12 h-12 rounded-2xl bg-slate-800 border border-slate-700 flex items-center justify-center text-white group-hover:scale-110 transition-transform">
+                    {/* Authentic TikTok SVG */}
+                    <svg className="w-6 h-6 fill-current text-cyan-300" viewBox="0 0 24 24">
+                      <path d="M12.525.02c1.31-.02 2.61-.01 3.91-.02.08 1.53.63 3.09 1.75 4.17 1.12 1.11 2.7 1.62 4.24 1.79v4.03c-1.44-.05-2.89-.35-4.2-.97-.57-.26-1.1-.59-1.62-.93-.01 2.92.01 5.84-.02 8.75-.08 1.4-.54 2.79-1.35 3.94-1.31 1.92-3.58 3.17-5.91 3.21-1.43.08-2.86-.31-4.08-1.03-2.02-1.19-3.44-3.37-3.65-5.71-.02-.5-.03-1-.01-1.49.18-1.9 1.12-3.72 2.58-4.96 1.66-1.44 3.98-2.13 6.15-1.72.02 1.48-.04 2.96-.04 4.44-.99-.32-2.15-.23-3.02.37-.63.41-1.11 1.04-1.36 1.75-.21.51-.24 1.07-.14 1.61.24 1.64 1.82 3.02 3.5 2.87 1.12-.01 2.19-.66 2.77-1.61.19-.33.4-.67.41-1.06.1-1.79.06-3.57.07-5.36.01-4.03-.01-8.05.02-12.07z"/>
+                    </svg>
+                  </div>
+                  <div className="text-left">
+                    <div className="flex items-center gap-2">
+                      <h3 className="text-base font-bold text-white group-hover:text-cyan-300 transition-colors">
+                        TikTok
+                      </h3>
+                      <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-cyan-500/20 text-cyan-300 border border-cyan-500/30">
+                        Videos
+                      </span>
+                    </div>
+                    <p className="text-sm font-mono text-cyan-400 font-bold mt-0.5">
+                      @gkbtech
+                    </p>
+                    <p className="text-[11px] text-slate-400 mt-1">
+                      Hardware clips, test runs & tech tutorials
+                    </p>
+                  </div>
+                </div>
+                <div className="shrink-0 p-2.5 rounded-xl bg-purple-500/20 border border-purple-500/40 text-purple-300 group-hover:bg-purple-500 group-hover:text-slate-950 transition-all">
+                  <ExternalLink className="w-4 h-4" />
+                </div>
+              </a>
             </div>
           </div>
         )}
