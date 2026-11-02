@@ -13,7 +13,8 @@ import {
   Copy, Download, Code, Check, Printer, Bluetooth, QrCode, X, RefreshCw,
   Layers, Lightbulb, Power, Droplets, Fuel, Gauge, Wind, FlaskConical,
   ShieldCheck, Sparkles, MapPin, Plus, Trash2, Search, CheckCircle2,
-  Eye, EyeOff, Users, PauseCircle, PlayCircle, HelpCircle, Activity, FileText, Sliders, Send, ExternalLink
+  Eye, EyeOff, Users, PauseCircle, PlayCircle, HelpCircle, Activity, FileText, Sliders, Send, ExternalLink,
+  Menu, MoreVertical
 } from 'lucide-react';
 
 type UserType = {
@@ -820,6 +821,7 @@ function GenericFleetPreviewDashboard({
 // ================= MAIN IOT DEVICE PORTAL =================
 export default function IoTDevicePortal() {
   const [activeTab, setActiveTab] = useState<PortalTab>('my-devices');
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [isLightMode, setIsLightMode] = useState(
     () => window.localStorage.getItem('gkb-theme') === 'light'
   );
@@ -2201,35 +2203,194 @@ export default function IoTDevicePortal() {
             </button>
 
             {user && (
-              <div className="flex items-center space-x-2 bg-slate-900/90 px-3 py-1.5 rounded-xl border border-cyan-500/30 shadow-[0_0_12px_rgba(6,182,212,0.15)]">
-                <div className="flex items-center gap-2">
-                  <div className="w-7 h-7 rounded-lg bg-gradient-to-tr from-cyan-500 to-purple-600 flex items-center justify-center text-xs font-black text-slate-950 shadow-md">
+              <>
+                <div className="flex items-center space-x-2 bg-slate-900/90 px-3 py-1.5 rounded-xl border border-cyan-500/30 shadow-[0_0_12px_rgba(6,182,212,0.15)]">
+                  <div className="flex items-center gap-2">
+                    <div className="w-7 h-7 rounded-lg bg-gradient-to-tr from-cyan-500 to-purple-600 flex items-center justify-center text-xs font-black text-slate-950 shadow-md">
+                      {isAdmin ? 'Z' : (user.firstName ? user.firstName[0] : (user.email[0] || 'U')).toUpperCase()}
+                    </div>
+                    <div className="hidden sm:block text-left">
+                      <p className="text-xs font-bold text-white leading-none">
+                        {isAdmin ? 'Zumah Kelvin (CEO)' : (user.firstName ? `${user.firstName} ${user.lastName}` : user.email)}
+                      </p>
+                      <span className="text-[9px] uppercase font-mono text-cyan-400 font-bold flex items-center gap-1 mt-0.5">
+                        {isAdmin ? <><ShieldCheck className="w-2.5 h-2.5 text-purple-400" /> SYSTEM ADMIN</> : user.role}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Explicit Dedicated Logout Button */}
+                <button
+                  type="button"
+                  onClick={() => void handleSignOut()}
+                  title="Sign out of GKB IoT Portal"
+                  className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-rose-500/15 hover:bg-rose-500/25 text-rose-300 border border-rose-500/40 hover:border-rose-400/70 text-xs font-bold transition-all cursor-pointer shadow-[0_0_12px_rgba(244,63,94,0.15)] shrink-0"
+                >
+                  <LogOut className="h-4 w-4 text-rose-400" />
+                  <span className="hidden sm:inline">Logout</span>
+                </button>
+              </>
+            )}
+
+            {/* Three lines / dots menu toggle button to open up the menu bar */}
+            <button
+              type="button"
+              onClick={() => setMobileMenuOpen(prev => !prev)}
+              title={mobileMenuOpen ? 'Close Menu' : 'Open Menu (Navigation & Settings)'}
+              aria-label={mobileMenuOpen ? 'Close Navigation Menu' : 'Open Navigation Menu'}
+              className="inline-flex items-center justify-center p-2 rounded-xl border border-cyan-500/40 bg-slate-900 text-cyan-300 hover:text-white hover:border-cyan-400 hover:bg-cyan-500/15 transition-all cursor-pointer shadow-[0_0_12px_rgba(6,182,212,0.15)]"
+            >
+              {mobileMenuOpen ? <X className="h-5 w-5 text-rose-400" /> : <Menu className="h-5 w-5 text-cyan-400" />}
+            </button>
+          </div>
+        </div>
+
+        {/* Dropdown / Responsive Menu Drawer */}
+        {mobileMenuOpen && (
+          <div className="border-t border-cyan-500/20 bg-slate-950/95 backdrop-blur-xl px-4 py-5 shadow-2xl animate-fadeIn space-y-4">
+            {user && (
+              <div className="flex items-center justify-between pb-3 border-b border-slate-800/80">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-cyan-500 to-purple-600 flex items-center justify-center text-sm font-black text-slate-950 shadow-md">
                     {isAdmin ? 'Z' : (user.firstName ? user.firstName[0] : (user.email[0] || 'U')).toUpperCase()}
                   </div>
-                  <div className="hidden sm:block text-left">
-                    <p className="text-xs font-bold text-white leading-none">
+                  <div>
+                    <p className="text-sm font-bold text-white leading-tight">
                       {isAdmin ? 'Zumah Kelvin (CEO)' : (user.firstName ? `${user.firstName} ${user.lastName}` : user.email)}
                     </p>
-                    <span className="text-[9px] uppercase font-mono text-cyan-400 font-bold flex items-center gap-1 mt-0.5">
-                      {isAdmin ? <><ShieldCheck className="w-2.5 h-2.5 text-purple-400" /> SYSTEM ADMIN</> : user.role}
+                    <p className="text-xs text-slate-400">{user.email}</p>
+                    <span className="inline-flex items-center gap-1 mt-1 text-[10px] font-mono font-bold uppercase text-cyan-400">
+                      {isAdmin ? <><ShieldCheck className="w-3 h-3 text-purple-400" /> SYSTEM ADMIN</> : user.role}
                     </span>
                   </div>
                 </div>
                 <button
                   type="button"
-                  onClick={() => void handleSignOut()}
-                  title="Sign out of GKB IoT Portal"
-                  className="text-slate-400 hover:text-rose-400 text-xs cursor-pointer p-1.5 rounded-lg hover:bg-slate-800 transition-colors ml-1"
+                  onClick={() => {
+                    setMobileMenuOpen(false);
+                    void handleSignOut();
+                  }}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-rose-500/15 text-rose-300 border border-rose-500/40 text-xs font-bold hover:bg-rose-500/25 transition-colors cursor-pointer"
                 >
-                  <LogOut className="h-4 w-4" />
+                  <LogOut className="h-3.5 w-3.5 text-rose-400" />
+                  Logout
+                </button>
+              </div>
+            )}
+
+            {/* Menu Navigation Links */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              {isAdmin ? (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => { setActiveTab('fleet'); setMobileMenuOpen(false); }}
+                    className={`flex items-center gap-2.5 px-3.5 py-2.5 rounded-xl text-xs sm:text-sm font-bold transition-all text-left cursor-pointer ${
+                      activeTab === 'fleet' ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-400/50' : 'text-slate-300 hover:bg-slate-900 hover:text-cyan-300'
+                    }`}
+                  >
+                    <Layers className="h-4 w-4 text-cyan-400" />
+                    <span>Fleet Hub</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => { setActiveTab('deploy'); setDeployError(''); setDeploySuccess(''); setMobileMenuOpen(false); }}
+                    className={`flex items-center gap-2.5 px-3.5 py-2.5 rounded-xl text-xs sm:text-sm font-bold transition-all text-left cursor-pointer ${
+                      activeTab === 'deploy' ? 'bg-purple-500/20 text-purple-300 border border-purple-400/50' : 'text-slate-300 hover:bg-slate-900 hover:text-purple-300'
+                    }`}
+                  >
+                    <Key className="h-4 w-4 text-purple-400" />
+                    <span>Deploy Keys</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => { setActiveTab('customer-devices'); setMobileMenuOpen(false); }}
+                    className={`flex items-center gap-2.5 px-3.5 py-2.5 rounded-xl text-xs sm:text-sm font-bold transition-all text-left cursor-pointer ${
+                      activeTab === 'customer-devices' ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-400/50' : 'text-slate-300 hover:bg-slate-900 hover:text-cyan-300'
+                    }`}
+                  >
+                    <Users className="h-4 w-4 text-cyan-400" />
+                    <span>Customer Devices {allCustomerDevices.length > 0 && `(${allCustomerDevices.length})`}</span>
+                  </button>
+                </>
+              ) : (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => { setActiveTab('my-devices'); setMobileMenuOpen(false); }}
+                    className={`flex items-center gap-2.5 px-3.5 py-2.5 rounded-xl text-xs sm:text-sm font-bold transition-all text-left cursor-pointer ${
+                      activeTab === 'my-devices' ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-400/50' : 'text-slate-300 hover:bg-slate-900 hover:text-cyan-300'
+                    }`}
+                  >
+                    <Radio className="h-4 w-4 text-cyan-400" />
+                    <span>My Devices {linkedDevices.length > 0 && `(${linkedDevices.length})`}</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => { setActiveTab('add-device'); setClientLinkError(''); setClientLinkSuccess(''); setMobileMenuOpen(false); }}
+                    className={`flex items-center gap-2.5 px-3.5 py-2.5 rounded-xl text-xs sm:text-sm font-bold transition-all text-left cursor-pointer ${
+                      activeTab === 'add-device' ? 'bg-gradient-to-r from-cyan-500 to-purple-600 text-black font-black' : 'text-cyan-300 hover:bg-slate-900'
+                    }`}
+                  >
+                    <Plus className="h-4 w-4" />
+                    <span>+ Add Device</span>
+                  </button>
+                </>
+              )}
+              <button
+                type="button"
+                onClick={() => { setActiveTab('dashboard'); setMobileMenuOpen(false); }}
+                className={`flex items-center gap-2.5 px-3.5 py-2.5 rounded-xl text-xs sm:text-sm font-bold transition-all text-left cursor-pointer ${
+                  activeTab === 'dashboard' ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-400/50' : 'text-slate-300 hover:bg-slate-900 hover:text-cyan-300'
+                }`}
+              >
+                <Cpu className="h-4 w-4 text-cyan-400" />
+                <span>Active Device</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => { setActiveTab('support'); setMobileMenuOpen(false); }}
+                className={`flex items-center gap-2.5 px-3.5 py-2.5 rounded-xl text-xs sm:text-sm font-bold transition-all text-left cursor-pointer ${
+                  activeTab === 'support' ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-400/50' : 'text-slate-300 hover:bg-slate-900 hover:text-cyan-300'
+                }`}
+              >
+                <Wrench className="h-4 w-4 text-cyan-400" />
+                <span>{isAdmin ? 'Support Desk' : 'Support & Docs'}</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => { setActiveTab('contact'); setMobileMenuOpen(false); }}
+                className={`flex items-center gap-2.5 px-3.5 py-2.5 rounded-xl text-xs sm:text-sm font-bold transition-all text-left cursor-pointer ${
+                  activeTab === 'contact' ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-400/50' : 'text-slate-300 hover:bg-slate-900 hover:text-cyan-300'
+                }`}
+              >
+                <Phone className="h-4 w-4 text-cyan-400" />
+                <span>Contact Engineering</span>
+              </button>
+            </div>
+
+            {/* Logout button at bottom of menu drawer */}
+            {user && (
+              <div className="pt-2 border-t border-slate-800/80">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setMobileMenuOpen(false);
+                    void handleSignOut();
+                  }}
+                  className="w-full flex items-center justify-center gap-2 py-3 rounded-xl bg-gradient-to-r from-rose-500/20 to-red-600/20 text-rose-300 border border-rose-500/40 hover:bg-rose-500/30 transition-all font-black text-sm cursor-pointer shadow-[0_0_15px_rgba(244,63,94,0.2)]"
+                >
+                  <LogOut className="h-4 w-4 text-rose-400" />
+                  <span>Log Out of GKB IoT Portal</span>
                 </button>
               </div>
             )}
           </div>
-        </div>
+        )}
 
         {/* Mobile Navigation */}
-        <nav className="flex lg:hidden gap-1.5 overflow-x-auto border-t border-slate-800/70 px-3 py-2 scrollbar-none">
+        <nav className="flex lg:hidden gap-1.5 overflow-x-auto border-t border-slate-800/70 px-3 py-2 scrollbar-none items-center">
           {isAdmin ? (
             <>
               <button
@@ -2301,6 +2462,17 @@ export default function IoTDevicePortal() {
           >
             Contact
           </button>
+          {user && (
+            <button
+              type="button"
+              onClick={() => void handleSignOut()}
+              title="Sign out of GKB IoT Portal"
+              className="px-3 py-1.5 rounded-md text-xs font-bold whitespace-nowrap cursor-pointer bg-rose-500/15 text-rose-300 border border-rose-500/40 flex items-center gap-1.5 shrink-0 ml-auto hover:bg-rose-500/25 transition-all"
+            >
+              <LogOut className="h-3.5 w-3.5 text-rose-400" />
+              <span>Logout</span>
+            </button>
+          )}
         </nav>
       </header>
 
