@@ -12,7 +12,8 @@ import {
   ArrowRight, Sun, Moon, Zap, Wifi, Radio, Key,
   Copy, Download, Code, Check, Printer, Bluetooth, QrCode, X, RefreshCw,
   Layers, Lightbulb, Power, Droplets, Fuel, Gauge, Wind, FlaskConical,
-  ShieldCheck, Sparkles, MapPin, Plus, Trash2, Search, CheckCircle2
+  ShieldCheck, Sparkles, MapPin, Plus, Trash2, Search, CheckCircle2,
+  Eye, EyeOff, Users, PauseCircle, PlayCircle, HelpCircle, Activity, FileText, Sliders, Send, ExternalLink
 } from 'lucide-react';
 
 type UserType = {
