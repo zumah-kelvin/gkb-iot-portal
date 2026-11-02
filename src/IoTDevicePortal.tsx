@@ -35,7 +35,7 @@ export type StudentProject =
   | 'fan-regulator'
   | 'alcohol-breathalyzer';
 
-export type PortalTab = 'fleet' | 'deploy' | 'my-devices' | 'add-device' | 'dashboard' | 'support' | 'contact';
+export type PortalTab = 'fleet' | 'deploy' | 'customer-devices' | 'my-devices' | 'add-device' | 'dashboard' | 'support' | 'contact';
 
 export type Device = {
   id: number;
@@ -836,6 +836,23 @@ export default function IoTDevicePortal() {
   const [loginBusy, setLoginBusy] = useState(false);
   const [creatingAccount, setCreatingAccount] = useState(false);
 
+  // User-Friendly Auth States
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+  const [signupConfirmPassword, setSignupConfirmPassword] = useState('');
+  const [rememberMe, setRememberMe] = useState(() => window.localStorage.getItem('gkb-remember-me') === 'true');
+  const [forgotPasswordMode, setForgotPasswordMode] = useState(false);
+  const [forgotEmail, setForgotEmail] = useState('');
+
+  // Admin Fleet and Customer States
+  const [allCustomerDevices, setAllCustomerDevices] = useState<any[]>([]);
+  const [customerDevicesLoading, setCustomerDevicesLoading] = useState(false);
+  const [customerFilter, setCustomerFilter] = useState('');
+  const [complaints, setComplaints] = useState<any[]>([]);
+  const [complaintsLoading, setComplaintsLoading] = useState(false);
+  const [complaintFilter, setComplaintFilter] = useState<'all' | 'pending' | 'resolved'>('all');
+  const [copiedKey, setCopiedKey] = useState<string | null>(null);
+
   // Admin identity check
   const isAdmin = Boolean(user && (user.role === 'admin' || user.email?.toLowerCase() === 'zumkel023@gmail.com'));
 
@@ -1087,6 +1104,19 @@ export default function IoTDevicePortal() {
     setLoginError('');
     setLoginMessage('');
 
+    if (creatingAccount) {
+      if (loginPassword !== signupConfirmPassword) {
+        setLoginError('Passwords do not match. Please verify both password entries.');
+        setLoginBusy(false);
+        return;
+      }
+      if (loginPassword.length < 6) {
+        setLoginError('Password must be at least 6 characters long.');
+        setLoginBusy(false);
+        return;
+      }
+    }
+
     try {
       if (creatingAccount) {
         const { data, error } = await relaySupabase.auth.signUp({
@@ -1107,6 +1137,7 @@ export default function IoTDevicePortal() {
           setLoginMessage('Account created! Check your email to confirm your address, then sign in.');
           setCreatingAccount(false);
           setLoginPassword('');
+          setSignupConfirmPassword('');
           return;
         }
       } else {
@@ -1116,10 +1147,49 @@ export default function IoTDevicePortal() {
           : { phone: identifier, password: loginPassword };
         const { error } = await relaySupabase.auth.signInWithPassword(credentials);
         if (error) throw error;
+
+        // Remember login identifier if checked
+        if (rememberMe) {
+          window.localStorage.setItem('gkb-remember-me', 'true');
+          window.localStorage.setItem('gkb-saved-login', identifier);
+        } else {
+          window.localStorage.removeItem('gkb-remember-me');
+          window.localStorage.removeItem('gkb-saved-login');
+        }
       }
       setLoginModalOpen(false);
       setLoginError('');
       setLoginMessage('');
+    } catch (err) {
+      const msg = formatSupabaseError(err);
+      if (msg.toLowerCase().includes('invalid login credentials')) {
+        setLoginError('Invalid login credentials. Please check your email/phone and password, or create an account if new.');
+      } else {
+        setLoginError(msg);
+      }
+    } finally {
+      setLoginBusy(false);
+    }
+  };
+
+  const handleForgotPassword = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    const targetEmail = (forgotEmail || loginEmail).trim();
+    if (!targetEmail || !targetEmail.includes('@')) {
+      setLoginError('Please enter a valid email address to receive password reset instructions.');
+      return;
+    }
+    if (!relaySupabase) return;
+    setLoginBusy(true);
+    setLoginError('');
+    setLoginMessage('');
+    try {
+      const { error } = await relaySupabase.auth.resetPasswordForEmail(targetEmail, {
+        redirectTo: window.location.origin
+      });
+      if (error) throw error;
+      setLoginMessage(`Password reset link sent to ${targetEmail}! Please check your email inbox.`);
+      setForgotPasswordMode(false);
     } catch (err) {
       setLoginError(formatSupabaseError(err));
     } finally {
@@ -1143,6 +1213,152 @@ export default function IoTDevicePortal() {
       setLoginBusy(false);
     }
   };
+
+  // Copy Key helper
+  const handleCopyKey = (key: string) => {
+    navigator.clipboard.writeText(key);
+    setCopiedKey(key);
+    setTimeout(() => setCopiedKey(null), 2500);
+  };
+
+  // Admin Auto-Generate Next Key
+  const handleGenerateNextKey = (project: StudentProject) => {
+    let prefix = 'GKB-DEV';
+    if (project === 'relay-test') prefix = 'GKB-RELAY';
+    else if (project === 'light-control') prefix = 'GKB-LIGHT';
+    else if (project === 'fan-regulator') prefix = 'GKB-FAN';
+    else if (project === 'smart-security-system') prefix = 'GKB-SEC';
+    else if (project === 'water-tank-monitor') prefix = 'GKB-SWP';
+    else if (project === 'fuel-tank-monitor') prefix = 'GKB-IUFT';
+    else if (project === 'prepaid-energy-meter') prefix = 'GKB-SPEM';
+
+    const existingKeys = deployedDevices.map(d => d.key.toUpperCase());
+    let counter = 1;
+    while (counter < 9999) {
+      const candidate = `${prefix}-${String(counter).padStart(4, '0')}`;
+      if (!existingKeys.includes(candidate)) {
+        setDeployKey(candidate);
+        break;
+      }
+      counter++;
+    }
+  };
+
+  // Admin: Fetch all customer linked devices across Ghana
+  const fetchAllCustomerDevices = useCallback(async () => {
+    if (!relaySupabase || !isAdmin) return;
+    setCustomerDevicesLoading(true);
+    try {
+      const { data, error } = await relaySupabase
+        .from('gkb_user_devices')
+        .select('*')
+        .order('created_at', { ascending: false });
+      if (!error && data) {
+        setAllCustomerDevices(data);
+      }
+    } catch (err) {
+      console.warn('Could not load all customer devices:', err);
+    } finally {
+      setCustomerDevicesLoading(false);
+    }
+  }, [isAdmin]);
+
+  // Admin: Toggle billing pause on customer device
+  const handleTogglePauseCustomerDevice = async (userId: string, deviceKey: string, currentPaused: boolean) => {
+    if (!relaySupabase || !isAdmin) return;
+    try {
+      const nextPaused = !currentPaused;
+      const { error } = await relaySupabase
+        .from('gkb_user_devices')
+        .update({ is_paused: nextPaused })
+        .eq('user_id', userId)
+        .eq('device_key', deviceKey);
+      if (error) throw error;
+      setAllCustomerDevices(prev => prev.map(d =>
+        (d.user_id === userId && d.device_key === deviceKey) ? { ...d, is_paused: nextPaused } : d
+      ));
+    } catch (err) {
+      alert(formatSupabaseError(err));
+    }
+  };
+
+  // Admin: Remote unlink customer device
+  const handleDeleteCustomerDevice = async (userId: string, deviceKey: string) => {
+    if (!relaySupabase || !isAdmin) return;
+    if (!window.confirm(`Are you sure you want to unlink customer device "${deviceKey}"?`)) return;
+    try {
+      const { error } = await relaySupabase
+        .from('gkb_user_devices')
+        .delete()
+        .eq('user_id', userId)
+        .eq('device_key', deviceKey);
+      if (error) throw error;
+      setAllCustomerDevices(prev => prev.filter(d => !(d.user_id === userId && d.device_key === deviceKey)));
+    } catch (err) {
+      alert(formatSupabaseError(err));
+    }
+  };
+
+  // Fetch support tickets
+  const fetchComplaints = useCallback(async () => {
+    if (!relaySupabase) return;
+    setComplaintsLoading(true);
+    try {
+      let query = relaySupabase
+        .from('gkb_complaints')
+        .select('*')
+        .order('created_at', { ascending: false });
+      if (user && !isAdmin) {
+        query = query.eq('user_id', user.id);
+      }
+      const { data, error } = await query;
+      if (!error && data) {
+        setComplaints(data);
+      }
+    } catch (err) {
+      console.warn('Could not load complaints:', err);
+    } finally {
+      setComplaintsLoading(false);
+    }
+  }, [user, isAdmin]);
+
+  const handleToggleSolveComplaint = async (id: string, currentSolved: boolean) => {
+    if (!relaySupabase || !isAdmin) return;
+    try {
+      const nextSolved = !currentSolved;
+      const { error } = await relaySupabase
+        .from('gkb_complaints')
+        .update({ solved: nextSolved })
+        .eq('id', id);
+      if (error) throw error;
+      setComplaints(prev => prev.map(c => c.id === id ? { ...c, solved: nextSolved } : c));
+    } catch (err) {
+      alert(formatSupabaseError(err));
+    }
+  };
+
+  const handleDeleteComplaint = async (id: string) => {
+    if (!relaySupabase || !isAdmin) return;
+    if (!window.confirm('Delete this support ticket permanently?')) return;
+    try {
+      const { error } = await relaySupabase
+        .from('gkb_complaints')
+        .delete()
+        .eq('id', id);
+      if (error) throw error;
+      setComplaints(prev => prev.filter(c => c.id !== id));
+    } catch (err) {
+      alert(formatSupabaseError(err));
+    }
+  };
+
+  useEffect(() => {
+    if (!user) return;
+    if (isAdmin) {
+      void fetchAllCustomerDevices();
+    }
+    void fetchComplaints();
+  }, [user, isAdmin, fetchAllCustomerDevices, fetchComplaints]);
 
   const handleSignOut = async () => {
     if (!relaySupabase) return;
@@ -1401,7 +1617,7 @@ export default function IoTDevicePortal() {
             <img
               src="/gkb-company-logo.png"
               alt="GKB Technologies logo"
-              className="h-10 w-10 shrink-0 rounded-lg object-contain bg-slate-900 border border-cyan-500/30 p-1 shadow-[0_0_15px_rgba(6,182,212,0.2)]"
+              className="h-10 w-10 shrink-0 rounded-xl object-contain bg-slate-900 border border-cyan-500/30 p-1 shadow-[0_0_15px_rgba(6,182,212,0.2)]"
             />
             <div>
               <span className="text-base font-black tracking-wider bg-gradient-to-r from-cyan-400 via-sky-300 to-purple-400 bg-clip-text text-transparent">
@@ -1413,7 +1629,7 @@ export default function IoTDevicePortal() {
           <button
             type="button"
             onClick={() => setIsLightMode(!isLightMode)}
-            className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-cyan-500/30 bg-slate-900 px-3 py-1.5 text-xs text-slate-300 hover:text-cyan-300 cursor-pointer"
+            className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-cyan-500/30 bg-slate-900 px-3 py-1.5 text-xs text-slate-300 hover:text-cyan-300 cursor-pointer transition-colors"
           >
             {isLightMode ? <Moon className="h-3.5 w-3.5" /> : <Sun className="h-3.5 w-3.5" />}
             <span className="hidden sm:inline">{isLightMode ? 'Dark' : 'Light'}</span>
@@ -1429,49 +1645,53 @@ export default function IoTDevicePortal() {
               </div>
               <h2 className="text-2xl font-black tracking-tight text-white">GKB Fleet Access</h2>
               <p className="text-xs text-slate-400 max-w-sm mx-auto leading-relaxed">
-                Sign in to monitor and control your deployed smart hardware, or create a new client account.
+                {forgotPasswordMode
+                  ? 'Enter your registered email below to receive a secure password recovery link.'
+                  : 'Sign in to monitor and control your deployed smart hardware, or create a new client account.'}
               </p>
             </div>
 
-            {/* Tablist Switcher */}
-            <div role="tablist" aria-label="Account access" className="grid grid-cols-2 rounded-xl border border-slate-800 bg-slate-950 p-1">
-              <button
-                type="button"
-                role="tab"
-                aria-selected={!creatingAccount}
-                disabled={loginBusy}
-                onClick={() => {
-                  setCreatingAccount(false);
-                  setLoginError('');
-                  setLoginMessage('');
-                }}
-                className={`rounded-lg px-4 py-2.5 text-xs font-bold uppercase tracking-wider transition-all cursor-pointer ${
-                  !creatingAccount
-                    ? 'bg-gradient-to-r from-cyan-500 to-cyan-400 text-slate-950 shadow-[0_0_15px_rgba(6,182,212,0.35)]'
-                    : 'text-slate-400 hover:text-white'
-                }`}
-              >
-                Sign In
-              </button>
-              <button
-                type="button"
-                role="tab"
-                aria-selected={creatingAccount}
-                disabled={loginBusy}
-                onClick={() => {
-                  setCreatingAccount(true);
-                  setLoginError('');
-                  setLoginMessage('');
-                }}
-                className={`rounded-lg px-4 py-2.5 text-xs font-bold uppercase tracking-wider transition-all cursor-pointer ${
-                  creatingAccount
-                    ? 'bg-gradient-to-r from-cyan-500 to-cyan-400 text-slate-950 shadow-[0_0_15px_rgba(6,182,212,0.35)]'
-                    : 'text-slate-400 hover:text-white'
-                }`}
-              >
-                Create Account
-              </button>
-            </div>
+            {/* Tablist Switcher (hidden in forgot password mode) */}
+            {!forgotPasswordMode && (
+              <div role="tablist" aria-label="Account access" className="grid grid-cols-2 rounded-xl border border-slate-800 bg-slate-950 p-1">
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={!creatingAccount}
+                  disabled={loginBusy}
+                  onClick={() => {
+                    setCreatingAccount(false);
+                    setLoginError('');
+                    setLoginMessage('');
+                  }}
+                  className={`rounded-lg px-4 py-2.5 text-xs font-bold uppercase tracking-wider transition-all cursor-pointer ${
+                    !creatingAccount
+                      ? 'bg-gradient-to-r from-cyan-500 to-cyan-400 text-slate-950 shadow-[0_0_15px_rgba(6,182,212,0.35)]'
+                      : 'text-slate-400 hover:text-white'
+                  }`}
+                >
+                  Sign In
+                </button>
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={creatingAccount}
+                  disabled={loginBusy}
+                  onClick={() => {
+                    setCreatingAccount(true);
+                    setLoginError('');
+                    setLoginMessage('');
+                  }}
+                  className={`rounded-lg px-4 py-2.5 text-xs font-bold uppercase tracking-wider transition-all cursor-pointer ${
+                    creatingAccount
+                      ? 'bg-gradient-to-r from-cyan-500 to-cyan-400 text-slate-950 shadow-[0_0_15px_rgba(6,182,212,0.35)]'
+                      : 'text-slate-400 hover:text-white'
+                  }`}
+                >
+                  Create Account
+                </button>
+              </div>
+            )}
 
             {/* Error & Message Banners */}
             {loginError && (
@@ -1487,127 +1707,273 @@ export default function IoTDevicePortal() {
               </div>
             )}
 
-            {/* Form */}
-            <form onSubmit={handleAuthSubmit} className="space-y-4">
-              {creatingAccount && (
-                <>
-                  <div className="grid gap-3 sm:grid-cols-2">
-                    <label className="block text-xs font-medium text-slate-400">
-                      First Name
-                      <input
-                        type="text"
-                        autoComplete="given-name"
-                        maxLength={80}
-                        placeholder="John"
-                        value={signupFirstName}
-                        onChange={event => setSignupFirstName(event.target.value)}
-                        className="mt-1 w-full rounded-xl border border-slate-800 bg-slate-950 px-3.5 py-2.5 text-xs text-white focus:border-cyan-400 focus:outline-none transition-colors"
-                        required
-                      />
-                    </label>
-                    <label className="block text-xs font-medium text-slate-400">
-                      Last Name
-                      <input
-                        type="text"
-                        autoComplete="family-name"
-                        maxLength={80}
-                        placeholder="Doe"
-                        value={signupLastName}
-                        onChange={event => setSignupLastName(event.target.value)}
-                        className="mt-1 w-full rounded-xl border border-slate-800 bg-slate-950 px-3.5 py-2.5 text-xs text-white focus:border-cyan-400 focus:outline-none transition-colors"
-                        required
-                      />
-                    </label>
+            {/* Forgot Password Recovery Mode */}
+            {forgotPasswordMode ? (
+              <form onSubmit={handleForgotPassword} className="space-y-4">
+                <div>
+                  <label className="text-xs font-semibold text-slate-300 mb-1.5 block">Account Email Address</label>
+                  <div className="relative">
+                    <input
+                      type="email"
+                      placeholder="name@example.com"
+                      value={forgotEmail || loginEmail}
+                      onChange={e => setForgotEmail(e.target.value)}
+                      className="w-full pl-10 pr-4 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white focus:border-cyan-400 focus:outline-none transition-colors"
+                      required
+                    />
+                    <Mail className="w-4 h-4 text-slate-500 absolute left-3.5 top-3 pointer-events-none" />
                   </div>
-                  <div className="grid gap-3 sm:grid-cols-2">
-                    <label className="block text-xs font-medium text-slate-400">
-                      Phone Number
-                      <input
-                        type="tel"
-                        autoComplete="tel"
-                        maxLength={30}
-                        placeholder="+233 24 000 0000"
-                        value={signupPhone}
-                        onChange={event => setSignupPhone(event.target.value)}
-                        className="mt-1 w-full rounded-xl border border-slate-800 bg-slate-950 px-3.5 py-2.5 text-xs text-white focus:border-cyan-400 focus:outline-none transition-colors"
-                        required
-                      />
-                    </label>
-                    <label className="block text-xs font-medium text-slate-400">
-                      Location / City
-                      <input
-                        type="text"
-                        autoComplete="address-level2"
-                        maxLength={160}
-                        placeholder="Accra, Ghana"
-                        value={signupLocation}
-                        onChange={event => setSignupLocation(event.target.value)}
-                        className="mt-1 w-full rounded-xl border border-slate-800 bg-slate-950 px-3.5 py-2.5 text-xs text-white focus:border-cyan-400 focus:outline-none transition-colors"
-                        required
-                      />
-                    </label>
-                  </div>
-                </>
-              )}
-
-              <div>
-                <label className="text-xs font-medium text-slate-400 mb-1 block">
-                  {creatingAccount ? 'Email Address' : 'Email or Phone Number'}
-                </label>
-                <div className="relative">
-                  <input
-                    type={creatingAccount ? 'email' : 'text'}
-                    autoComplete={creatingAccount ? 'email' : 'username'}
-                    placeholder={creatingAccount ? 'name@example.com' : 'you@example.com or +233…'}
-                    value={loginEmail}
-                    onChange={e => setLoginEmail(e.target.value)}
-                    className="w-full pl-10 pr-4 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white focus:border-cyan-400 focus:outline-none transition-colors"
-                    required
-                  />
-                  <Mail className="w-4 h-4 text-slate-500 absolute left-3.5 top-3 pointer-events-none" />
                 </div>
-              </div>
 
-              <div>
-                <label className="text-xs font-medium text-slate-400 mb-1 block">Password</label>
-                <div className="relative">
-                  <input
-                    type="password"
-                    autoComplete={creatingAccount ? 'new-password' : 'current-password'}
-                    minLength={6}
-                    placeholder="••••••••"
-                    value={loginPassword}
-                    onChange={e => setLoginPassword(e.target.value)}
-                    className="w-full pl-10 pr-4 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white focus:border-cyan-400 focus:outline-none transition-colors"
-                    required
-                  />
-                  <Lock className="w-4 h-4 text-slate-500 absolute left-3.5 top-3 pointer-events-none" />
+                <div className="flex gap-2 pt-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setForgotPasswordMode(false);
+                      setLoginError('');
+                    }}
+                    className="flex-1 py-3 rounded-xl border border-slate-800 bg-slate-950 text-xs font-bold text-slate-300 hover:text-white hover:bg-slate-800 transition-colors cursor-pointer"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={loginBusy}
+                    className="flex-1 py-3 rounded-xl bg-gradient-to-r from-cyan-500 to-purple-600 text-slate-950 text-xs font-black uppercase tracking-wider shadow-lg shadow-cyan-500/25 hover:brightness-110 transition-all cursor-pointer disabled:opacity-50"
+                  >
+                    {loginBusy ? 'Sending Link...' : 'Send Reset Link'}
+                  </button>
                 </div>
-              </div>
-
-              <button
-                type="submit"
-                disabled={loginBusy}
-                className="w-full py-3 bg-gradient-to-r from-cyan-500 via-sky-400 to-purple-600 text-slate-950 font-black rounded-xl text-xs uppercase tracking-wider shadow-[0_0_20px_rgba(6,182,212,0.4)] hover:brightness-110 transition-all disabled:opacity-50 cursor-pointer flex items-center justify-center gap-2"
-              >
-                {loginBusy ? (
+              </form>
+            ) : (
+              /* Standard Sign In / Create Account Form */
+              <form onSubmit={handleAuthSubmit} className="space-y-4">
+                {creatingAccount && (
                   <>
-                    <RefreshCw className="w-4 h-4 animate-spin" />
-                    <span>Authenticating...</span>
-                  </>
-                ) : creatingAccount ? (
-                  <>
-                    <Sparkles className="w-4 h-4" />
-                    <span>Create Client Account</span>
-                  </>
-                ) : (
-                  <>
-                    <Lock className="w-4 h-4" />
-                    <span>Sign In to GKB Fleet</span>
+                    <div className="grid gap-3 sm:grid-cols-2">
+                      <label className="block text-xs font-medium text-slate-300">
+                        First Name
+                        <input
+                          type="text"
+                          autoComplete="given-name"
+                          maxLength={80}
+                          placeholder="Kelvin"
+                          value={signupFirstName}
+                          onChange={event => setSignupFirstName(event.target.value)}
+                          className="mt-1 w-full rounded-xl border border-slate-800 bg-slate-950 px-3.5 py-2.5 text-xs text-white focus:border-cyan-400 focus:outline-none transition-colors"
+                          required
+                        />
+                      </label>
+                      <label className="block text-xs font-medium text-slate-300">
+                        Last Name
+                        <input
+                          type="text"
+                          autoComplete="family-name"
+                          maxLength={80}
+                          placeholder="Zumah"
+                          value={signupLastName}
+                          onChange={event => setSignupLastName(event.target.value)}
+                          className="mt-1 w-full rounded-xl border border-slate-800 bg-slate-950 px-3.5 py-2.5 text-xs text-white focus:border-cyan-400 focus:outline-none transition-colors"
+                          required
+                        />
+                      </label>
+                    </div>
+                    <div className="grid gap-3 sm:grid-cols-2">
+                      <label className="block text-xs font-medium text-slate-300">
+                        Phone Number
+                        <input
+                          type="tel"
+                          autoComplete="tel"
+                          maxLength={30}
+                          placeholder="024 000 0000 / +233..."
+                          value={signupPhone}
+                          onChange={event => setSignupPhone(event.target.value)}
+                          className="mt-1 w-full rounded-xl border border-slate-800 bg-slate-950 px-3.5 py-2.5 text-xs text-white focus:border-cyan-400 focus:outline-none transition-colors"
+                          required
+                        />
+                      </label>
+                      <label className="block text-xs font-medium text-slate-300">
+                        Location / City
+                        <input
+                          type="text"
+                          autoComplete="address-level2"
+                          maxLength={160}
+                          placeholder="Accra, Ghana"
+                          value={signupLocation}
+                          onChange={event => setSignupLocation(event.target.value)}
+                          className="mt-1 w-full rounded-xl border border-slate-800 bg-slate-950 px-3.5 py-2.5 text-xs text-white focus:border-cyan-400 focus:outline-none transition-colors"
+                          required
+                        />
+                      </label>
+                    </div>
                   </>
                 )}
-              </button>
-            </form>
+
+                <div>
+                  <div className="flex items-center justify-between mb-1.5">
+                    <label className="text-xs font-medium text-slate-300">
+                      {creatingAccount ? 'Email Address' : 'Email or Phone Number'}
+                    </label>
+                    {!creatingAccount && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setLoginEmail('zumkel023@gmail.com');
+                          setLoginError('');
+                        }}
+                        className="text-[10px] font-mono text-cyan-400 hover:text-cyan-300 transition-colors inline-flex items-center gap-1 cursor-pointer bg-cyan-500/10 px-2 py-0.5 rounded-md border border-cyan-500/30"
+                        title="Click to auto-fill CEO admin email"
+                      >
+                        <Zap className="w-2.5 h-2.5 text-cyan-400" /> Admin Quick-Fill
+                      </button>
+                    )}
+                  </div>
+                  <div className="relative">
+                    <input
+                      type={creatingAccount ? 'email' : 'text'}
+                      autoComplete={creatingAccount ? 'email' : 'username'}
+                      placeholder={creatingAccount ? 'name@example.com' : 'you@example.com or +233…'}
+                      value={loginEmail}
+                      onChange={e => setLoginEmail(e.target.value)}
+                      className="w-full pl-10 pr-4 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white focus:border-cyan-400 focus:outline-none transition-colors"
+                      required
+                    />
+                    <Mail className="w-4 h-4 text-slate-500 absolute left-3.5 top-3 pointer-events-none" />
+                  </div>
+                </div>
+
+                <div>
+                  <div className="flex items-center justify-between mb-1.5">
+                    <label className="text-xs font-medium text-slate-300">
+                      {creatingAccount ? 'Create Password' : 'Password'}
+                    </label>
+                    {!creatingAccount && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setForgotPasswordMode(true);
+                          setLoginError('');
+                          setLoginMessage('');
+                        }}
+                        className="text-[11px] text-cyan-400 hover:text-cyan-300 transition-colors cursor-pointer"
+                      >
+                        Forgot password?
+                      </button>
+                    )}
+                  </div>
+                  <div className="relative">
+                    <input
+                      type={showPassword ? 'text' : 'password'}
+                      autoComplete={creatingAccount ? 'new-password' : 'current-password'}
+                      minLength={6}
+                      placeholder="••••••••••••"
+                      value={loginPassword}
+                      onChange={e => setLoginPassword(e.target.value)}
+                      className="w-full pl-10 pr-10 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white focus:border-cyan-400 focus:outline-none transition-colors"
+                      required
+                    />
+                    <Lock className="w-4 h-4 text-slate-500 absolute left-3.5 top-3 pointer-events-none" />
+                    <button
+                      type="button"
+                      onClick={() => setShowPassword(!showPassword)}
+                      tabIndex={-1}
+                      className="absolute right-3 top-2.5 text-slate-400 hover:text-cyan-300 transition-colors cursor-pointer p-0.5 rounded"
+                      title={showPassword ? 'Hide password' : 'Show password'}
+                    >
+                      {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                    </button>
+                  </div>
+                </div>
+
+                {/* Confirm Password in Create Account mode */}
+                {creatingAccount && (
+                  <div>
+                    <label className="text-xs font-medium text-slate-300 mb-1.5 block">Confirm Password</label>
+                    <div className="relative">
+                      <input
+                        type={showConfirmPassword ? 'text' : 'password'}
+                        autoComplete="new-password"
+                        minLength={6}
+                        placeholder="••••••••••••"
+                        value={signupConfirmPassword}
+                        onChange={e => setSignupConfirmPassword(e.target.value)}
+                        className={`w-full pl-10 pr-10 py-2.5 bg-slate-950 border rounded-xl text-xs text-white focus:outline-none transition-colors ${
+                          signupConfirmPassword
+                            ? loginPassword === signupConfirmPassword
+                              ? 'border-emerald-500/60 focus:border-emerald-400'
+                              : 'border-rose-500/60 focus:border-rose-400'
+                            : 'border-slate-800 focus:border-cyan-400'
+                        }`}
+                        required
+                      />
+                      <Lock className="w-4 h-4 text-slate-500 absolute left-3.5 top-3 pointer-events-none" />
+                      <button
+                        type="button"
+                        onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                        tabIndex={-1}
+                        className="absolute right-3 top-2.5 text-slate-400 hover:text-cyan-300 transition-colors cursor-pointer p-0.5 rounded"
+                        title={showConfirmPassword ? 'Hide password' : 'Show password'}
+                      >
+                        {showConfirmPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                      </button>
+                    </div>
+                    {signupConfirmPassword && (
+                      <p className={`text-[11px] mt-1 flex items-center gap-1 ${
+                        loginPassword === signupConfirmPassword ? 'text-emerald-400' : 'text-rose-400'
+                      }`}>
+                        {loginPassword === signupConfirmPassword ? (
+                          <>
+                            <CheckCircle2 className="w-3.5 h-3.5" /> Passwords match
+                          </>
+                        ) : (
+                          <>
+                            <AlertTriangle className="w-3.5 h-3.5" /> Passwords do not match
+                          </>
+                        )}
+                      </p>
+                    )}
+                  </div>
+                )}
+
+                {/* Remember Me Checkbox */}
+                {!creatingAccount && (
+                  <div className="flex items-center justify-between text-xs text-slate-400 pt-1">
+                    <label className="flex items-center gap-2 cursor-pointer select-none">
+                      <input
+                        type="checkbox"
+                        checked={rememberMe}
+                        onChange={e => setRememberMe(e.target.checked)}
+                        className="rounded border-slate-700 bg-slate-950 text-cyan-500 focus:ring-cyan-400/30 h-4 w-4 cursor-pointer"
+                      />
+                      <span>Remember my account on this browser</span>
+                    </label>
+                  </div>
+                )}
+
+                <button
+                  type="submit"
+                  disabled={loginBusy}
+                  className="w-full py-3 bg-gradient-to-r from-cyan-500 via-sky-400 to-purple-600 text-slate-950 font-black rounded-xl text-xs uppercase tracking-wider shadow-[0_0_20px_rgba(6,182,212,0.4)] hover:brightness-110 transition-all disabled:opacity-50 cursor-pointer flex items-center justify-center gap-2"
+                >
+                  {loginBusy ? (
+                    <>
+                      <RefreshCw className="w-4 h-4 animate-spin" />
+                      <span>Authenticating...</span>
+                    </>
+                  ) : creatingAccount ? (
+                    <>
+                      <Sparkles className="w-4 h-4" />
+                      <span>Create Client Account</span>
+                    </>
+                  ) : (
+                    <>
+                      <Lock className="w-4 h-4" />
+                      <span>Sign In to GKB Fleet</span>
+                    </>
+                  )}
+                </button>
+              </form>
+            )}
 
             {/* Resend confirmation if needed */}
             {loginMessage.includes('confirm your address') && (
@@ -1656,42 +2022,55 @@ export default function IoTDevicePortal() {
       <div className="absolute top-1/3 right-1/4 w-96 h-96 bg-purple-600/10 rounded-full blur-[120px] pointer-events-none" />
 
       {/* Top Header */}
-      <header className="relative z-50 border-b border-cyan-500/30 bg-slate-950/80 backdrop-blur-md sticky top-0">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-20 flex items-center justify-between gap-2">
-          {/* Brand */}
-          <div className="flex min-w-0 items-center space-x-2 sm:space-x-3 cursor-pointer" onClick={() => setActiveTab('dashboard')}>
+      <header className="relative z-50 border-b border-cyan-500/30 bg-slate-950/90 backdrop-blur-md sticky top-0">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-20 flex items-center justify-between gap-3">
+          {/* Brand - Clean without overflowing badge */}
+          <div
+            className="flex min-w-0 items-center space-x-3 cursor-pointer shrink-0"
+            onClick={() => setActiveTab(isAdmin ? 'fleet' : 'my-devices')}
+          >
             <img
               src="/gkb-company-logo.png"
               alt="GKB Technologies logo"
-              className="h-12 w-12 shrink-0 rounded-lg object-cover shadow-[0_0_15px_rgba(6,182,212,0.2)]"
+              className="h-10 w-10 sm:h-11 sm:w-11 shrink-0 rounded-xl object-contain bg-slate-900 border border-cyan-500/30 p-1 shadow-[0_0_15px_rgba(6,182,212,0.2)]"
             />
-            <div>
+            <div className="min-w-0">
               <div className="flex items-center gap-2">
-                <h1 className="truncate text-sm sm:text-lg font-black tracking-wider bg-gradient-to-r from-cyan-400 via-purple-300 to-purple-500 bg-clip-text text-transparent">
-                  GKB IOT DEVICE CLOUD
+                <h1 className="text-sm sm:text-base lg:text-lg font-black tracking-wider bg-gradient-to-r from-cyan-400 via-sky-300 to-purple-400 bg-clip-text text-transparent whitespace-nowrap">
+                  GKB TECHNOLOGIES
                 </h1>
-                <span className="hidden md:inline-flex items-center rounded-full bg-cyan-500/20 px-2.5 py-0.5 text-[10px] font-bold text-cyan-300 border border-cyan-500/40">
-                  ESP32 Relay Pilot
-                </span>
+                {isAdmin ? (
+                  <span className="inline-flex items-center gap-1 rounded-full bg-purple-500/20 px-2 py-0.5 text-[10px] font-mono font-bold text-purple-300 border border-purple-500/40 shrink-0">
+                    <ShieldCheck className="h-3 w-3" /> ADMIN
+                  </span>
+                ) : (
+                  <span className="hidden sm:inline-flex items-center rounded-full bg-cyan-500/20 px-2 py-0.5 text-[10px] font-bold text-cyan-300 border border-cyan-500/40 shrink-0">
+                    IoT Fleet Cloud
+                  </span>
+                )}
               </div>
-              <p className="hidden sm:block text-[10px] text-cyan-400/70 tracking-widest uppercase">
-                Hardware BLE & QR Provisioning · Relay Control Center
+              <p className="hidden sm:block text-[10px] text-cyan-400/70 tracking-widest uppercase whitespace-nowrap">
+                Hardware BLE & QR Provisioning · Cloud Fleet Control
               </p>
             </div>
           </div>
 
-          {/* Navigation Bar */}
-          <nav aria-label="Main navigation" className="hidden md:flex items-center space-x-1.5">
+          {/* Navigation Bar - Responsive & Spacious */}
+          <nav aria-label="Main navigation" className="hidden lg:flex items-center gap-1.5 shrink-0">
             {isAdmin ? (
               <>
                 <button
                   type="button"
                   onClick={() => setActiveTab('fleet')}
-                  className={`px-4 py-2 rounded-xl text-sm font-bold transition-all cursor-pointer ${activeTab === 'fleet' ? 'bg-cyan-500/15 text-cyan-300 border border-cyan-400/60 shadow-[0_0_15px_rgba(6,182,212,0.25)]' : 'text-slate-400 hover:text-cyan-300'}`}
+                  className={`px-3 py-2 rounded-xl text-xs sm:text-sm font-bold transition-all cursor-pointer ${
+                    activeTab === 'fleet'
+                      ? 'bg-cyan-500/15 text-cyan-300 border border-cyan-400/60 shadow-[0_0_15px_rgba(6,182,212,0.25)]'
+                      : 'text-slate-400 hover:text-cyan-300'
+                  }`}
                 >
-                  <span className="flex items-center gap-2">
+                  <span className="flex items-center gap-1.5">
                     <Layers className="h-4 w-4" />
-                    Hardware Fleet
+                    Fleet Hub
                   </span>
                 </button>
                 <button
@@ -1701,21 +2080,29 @@ export default function IoTDevicePortal() {
                     setDeployError('');
                     setDeploySuccess('');
                   }}
-                  className={`px-4 py-2 rounded-xl text-sm font-bold transition-all cursor-pointer ${activeTab === 'deploy' ? 'bg-purple-500/15 text-purple-300 border border-purple-400/60 shadow-[0_0_15px_rgba(168,85,247,0.25)]' : 'text-slate-400 hover:text-purple-300'}`}
+                  className={`px-3 py-2 rounded-xl text-xs sm:text-sm font-bold transition-all cursor-pointer ${
+                    activeTab === 'deploy'
+                      ? 'bg-purple-500/15 text-purple-300 border border-purple-400/60 shadow-[0_0_15px_rgba(168,85,247,0.25)]'
+                      : 'text-slate-400 hover:text-purple-300'
+                  }`}
                 >
-                  <span className="flex items-center gap-2">
-                    <Sparkles className="h-4 w-4" />
+                  <span className="flex items-center gap-1.5">
+                    <Key className="h-4 w-4" />
                     Deploy Keys
                   </span>
                 </button>
                 <button
                   type="button"
-                  onClick={() => setActiveTab('my-devices')}
-                  className={`px-4 py-2 rounded-xl text-sm font-bold transition-all cursor-pointer ${activeTab === 'my-devices' ? 'bg-cyan-500/15 text-cyan-300 border border-cyan-400/60 shadow-[0_0_15px_rgba(6,182,212,0.25)]' : 'text-slate-400 hover:text-cyan-300'}`}
+                  onClick={() => setActiveTab('customer-devices')}
+                  className={`px-3 py-2 rounded-xl text-xs sm:text-sm font-bold transition-all cursor-pointer ${
+                    activeTab === 'customer-devices'
+                      ? 'bg-cyan-500/15 text-cyan-300 border border-cyan-400/60 shadow-[0_0_15px_rgba(6,182,212,0.25)]'
+                      : 'text-slate-400 hover:text-cyan-300'
+                  }`}
                 >
-                  <span className="flex items-center gap-2">
-                    <Radio className="h-4 w-4" />
-                    My Devices {linkedDevices.length > 0 && `(${linkedDevices.length})`}
+                  <span className="flex items-center gap-1.5">
+                    <Users className="h-4 w-4" />
+                    Customer Devices {allCustomerDevices.length > 0 && `(${allCustomerDevices.length})`}
                   </span>
                 </button>
               </>
@@ -1724,9 +2111,13 @@ export default function IoTDevicePortal() {
                 <button
                   type="button"
                   onClick={() => setActiveTab('my-devices')}
-                  className={`px-4 py-2 rounded-xl text-sm font-bold transition-all cursor-pointer ${activeTab === 'my-devices' ? 'bg-cyan-500/15 text-cyan-300 border border-cyan-400/60 shadow-[0_0_15px_rgba(6,182,212,0.25)]' : 'text-slate-400 hover:text-cyan-300'}`}
+                  className={`px-3.5 py-2 rounded-xl text-xs sm:text-sm font-bold transition-all cursor-pointer ${
+                    activeTab === 'my-devices'
+                      ? 'bg-cyan-500/15 text-cyan-300 border border-cyan-400/60 shadow-[0_0_15px_rgba(6,182,212,0.25)]'
+                      : 'text-slate-400 hover:text-cyan-300'
+                  }`}
                 >
-                  <span className="flex items-center gap-2">
+                  <span className="flex items-center gap-1.5">
                     <Radio className="h-4 w-4" />
                     My Devices {linkedDevices.length > 0 && `(${linkedDevices.length})`}
                   </span>
@@ -1738,11 +2129,15 @@ export default function IoTDevicePortal() {
                     setClientLinkError('');
                     setClientLinkSuccess('');
                   }}
-                  className={`px-4 py-2 rounded-xl text-sm font-bold transition-all cursor-pointer ${activeTab === 'add-device' ? 'bg-gradient-to-r from-cyan-500 to-purple-600 text-black font-black shadow-[0_0_15px_rgba(6,182,212,0.35)]' : 'bg-cyan-500/10 text-cyan-300 border border-cyan-500/30 hover:bg-cyan-500/20'}`}
+                  className={`px-3.5 py-2 rounded-xl text-xs sm:text-sm font-bold transition-all cursor-pointer ${
+                    activeTab === 'add-device'
+                      ? 'bg-gradient-to-r from-cyan-500 to-purple-600 text-black font-black shadow-[0_0_15px_rgba(6,182,212,0.35)]'
+                      : 'bg-cyan-500/10 text-cyan-300 border border-cyan-500/30 hover:bg-cyan-500/20'
+                  }`}
                 >
-                  <span className="flex items-center gap-2">
+                  <span className="flex items-center gap-1.5">
                     <Plus className="h-4 w-4" />
-                    Add New Device
+                    Add Device
                   </span>
                 </button>
               </>
@@ -1750,9 +2145,13 @@ export default function IoTDevicePortal() {
             <button
               type="button"
               onClick={() => setActiveTab('dashboard')}
-              className={`px-4 py-2 rounded-xl text-sm font-bold transition-all cursor-pointer ${activeTab === 'dashboard' ? 'bg-cyan-500/15 text-cyan-300 border border-cyan-400/60 shadow-[0_0_15px_rgba(6,182,212,0.25)]' : 'text-slate-400 hover:text-cyan-300'}`}
+              className={`px-3 py-2 rounded-xl text-xs sm:text-sm font-bold transition-all cursor-pointer ${
+                activeTab === 'dashboard'
+                  ? 'bg-cyan-500/15 text-cyan-300 border border-cyan-400/60 shadow-[0_0_15px_rgba(6,182,212,0.25)]'
+                  : 'text-slate-400 hover:text-cyan-300'
+              }`}
             >
-              <span className="flex items-center gap-2">
+              <span className="flex items-center gap-1.5">
                 <Cpu className="h-4 w-4" />
                 Active Device
               </span>
@@ -1760,48 +2159,68 @@ export default function IoTDevicePortal() {
             <button
               type="button"
               onClick={() => setActiveTab('support')}
-              className={`px-4 py-2 rounded-xl text-sm font-bold transition-all cursor-pointer ${activeTab === 'support' ? 'bg-cyan-500/15 text-cyan-300 border border-cyan-400/60 shadow-[0_0_15px_rgba(6,182,212,0.25)]' : 'text-slate-400 hover:text-cyan-300'}`}
+              className={`px-3 py-2 rounded-xl text-xs sm:text-sm font-bold transition-all cursor-pointer ${
+                activeTab === 'support'
+                  ? 'bg-cyan-500/15 text-cyan-300 border border-cyan-400/60 shadow-[0_0_15px_rgba(6,182,212,0.25)]'
+                  : 'text-slate-400 hover:text-cyan-300'
+              }`}
             >
-              Support & Docs
+              <span className="flex items-center gap-1.5">
+                <Wrench className="h-4 w-4" />
+                {isAdmin ? 'Support Desk' : 'Support & Docs'}
+                {isAdmin && complaints.filter(c => !c.solved).length > 0 && (
+                  <span className="ml-1 px-1.5 py-0.2 bg-rose-500 text-white text-[10px] font-bold rounded-full">
+                    {complaints.filter(c => !c.solved).length}
+                  </span>
+                )}
+              </span>
             </button>
             <button
               type="button"
               onClick={() => setActiveTab('contact')}
-              className={`px-4 py-2 rounded-xl text-sm font-bold transition-all cursor-pointer ${activeTab === 'contact' ? 'bg-cyan-500/15 text-cyan-300 border border-cyan-400/60 shadow-[0_0_15px_rgba(6,182,212,0.25)]' : 'text-slate-400 hover:text-cyan-300'}`}
+              className={`px-3 py-2 rounded-xl text-xs sm:text-sm font-bold transition-all cursor-pointer ${
+                activeTab === 'contact'
+                  ? 'bg-cyan-500/15 text-cyan-300 border border-cyan-400/60 shadow-[0_0_15px_rgba(6,182,212,0.25)]'
+                  : 'text-slate-400 hover:text-cyan-300'
+              }`}
             >
               Contact
             </button>
           </nav>
 
-          {/* Right Actions */}
+          {/* Right Actions & Admin Profile */}
           <div className="flex shrink-0 items-center space-x-2 sm:space-x-3">
             <button
               type="button"
               onClick={() => setIsLightMode(!isLightMode)}
-              className="inline-flex items-center justify-center gap-2 rounded-lg border border-cyan-500/30 bg-slate-900 px-2.5 py-2 text-xs font-medium text-slate-300 transition-colors hover:border-cyan-400 hover:text-cyan-300 sm:px-3 cursor-pointer"
+              className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-cyan-500/30 bg-slate-900 px-2.5 py-2 text-xs font-medium text-slate-300 transition-colors hover:border-cyan-400 hover:text-cyan-300 sm:px-3 cursor-pointer"
             >
               {isLightMode ? <Moon className="h-4 w-4" /> : <Sun className="h-4 w-4" />}
               <span className="hidden sm:inline">{isLightMode ? 'Dark' : 'Light'}</span>
             </button>
 
             {user && (
-              <div className="flex items-center space-x-2 bg-slate-900 px-3 py-1.5 rounded-xl border border-cyan-500/30 shadow-[0_0_12px_rgba(6,182,212,0.15)]">
-                <div className="flex items-center gap-1.5">
-                  <div className="w-6 h-6 rounded-lg bg-gradient-to-tr from-cyan-500 to-purple-600 flex items-center justify-center text-[10px] font-black text-black">
-                    {(user.firstName ? user.firstName[0] : (user.email[0] || 'U')).toUpperCase()}
+              <div className="flex items-center space-x-2 bg-slate-900/90 px-3 py-1.5 rounded-xl border border-cyan-500/30 shadow-[0_0_12px_rgba(6,182,212,0.15)]">
+                <div className="flex items-center gap-2">
+                  <div className="w-7 h-7 rounded-lg bg-gradient-to-tr from-cyan-500 to-purple-600 flex items-center justify-center text-xs font-black text-slate-950 shadow-md">
+                    {isAdmin ? 'Z' : (user.firstName ? user.firstName[0] : (user.email[0] || 'U')).toUpperCase()}
                   </div>
                   <div className="hidden sm:block text-left">
-                    <p className="text-xs font-bold text-white leading-none">{user.firstName ? `${user.firstName} ${user.lastName}` : user.email}</p>
-                    <span className="text-[9px] uppercase font-mono text-cyan-400 font-semibold">{user.role}</span>
+                    <p className="text-xs font-bold text-white leading-none">
+                      {isAdmin ? 'Zumah Kelvin (CEO)' : (user.firstName ? `${user.firstName} ${user.lastName}` : user.email)}
+                    </p>
+                    <span className="text-[9px] uppercase font-mono text-cyan-400 font-bold flex items-center gap-1 mt-0.5">
+                      {isAdmin ? <><ShieldCheck className="w-2.5 h-2.5 text-purple-400" /> SYSTEM ADMIN</> : user.role}
+                    </span>
                   </div>
                 </div>
                 <button
                   type="button"
                   onClick={() => void handleSignOut()}
                   title="Sign out of GKB IoT Portal"
-                  className="text-slate-400 hover:text-red-400 text-xs cursor-pointer p-1 rounded-lg hover:bg-slate-800 transition-colors ml-1"
+                  className="text-slate-400 hover:text-rose-400 text-xs cursor-pointer p-1.5 rounded-lg hover:bg-slate-800 transition-colors ml-1"
                 >
-                  <LogOut className="h-3.5 w-3.5" />
+                  <LogOut className="h-4 w-4" />
                 </button>
               </div>
             )}
@@ -1809,7 +2228,7 @@ export default function IoTDevicePortal() {
         </div>
 
         {/* Mobile Navigation */}
-        <nav className="flex md:hidden gap-1 overflow-x-auto border-t border-slate-800/70 px-3 py-2">
+        <nav className="flex lg:hidden gap-1.5 overflow-x-auto border-t border-slate-800/70 px-3 py-2 scrollbar-none">
           {isAdmin ? (
             <>
               <button
@@ -1817,7 +2236,7 @@ export default function IoTDevicePortal() {
                 onClick={() => setActiveTab('fleet')}
                 className={`px-3 py-1.5 rounded-md text-xs font-medium whitespace-nowrap cursor-pointer ${activeTab === 'fleet' ? 'bg-cyan-500/10 text-cyan-400 border border-cyan-500/40' : 'text-slate-400'}`}
               >
-                Hardware Fleet
+                Fleet Hub
               </button>
               <button
                 type="button"
@@ -1832,10 +2251,10 @@ export default function IoTDevicePortal() {
               </button>
               <button
                 type="button"
-                onClick={() => setActiveTab('my-devices')}
-                className={`px-3 py-1.5 rounded-md text-xs font-medium whitespace-nowrap cursor-pointer ${activeTab === 'my-devices' ? 'bg-cyan-500/10 text-cyan-400 border border-cyan-500/40' : 'text-slate-400'}`}
+                onClick={() => setActiveTab('customer-devices')}
+                className={`px-3 py-1.5 rounded-md text-xs font-medium whitespace-nowrap cursor-pointer ${activeTab === 'customer-devices' ? 'bg-cyan-500/10 text-cyan-400 border border-cyan-500/40' : 'text-slate-400'}`}
               >
-                My Devices {linkedDevices.length > 0 && `(${linkedDevices.length})`}
+                Customer Devices {allCustomerDevices.length > 0 && `(${allCustomerDevices.length})`}
               </button>
             </>
           ) : (
@@ -1872,7 +2291,7 @@ export default function IoTDevicePortal() {
             onClick={() => setActiveTab('support')}
             className={`px-3 py-1.5 rounded-md text-xs font-medium whitespace-nowrap cursor-pointer ${activeTab === 'support' ? 'bg-cyan-500/10 text-cyan-400 border border-cyan-500/40' : 'text-slate-400'}`}
           >
-            Support & Docs
+            {isAdmin ? 'Support Desk' : 'Support'}
           </button>
           <button
             type="button"
@@ -2181,7 +2600,17 @@ export default function IoTDevicePortal() {
 
                 <form onSubmit={handleAdminDeployKey} className="space-y-4 text-xs">
                   <div>
-                    <label className="block text-slate-300 font-bold mb-1">Hardware Key (Device Token)</label>
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="text-slate-300 font-bold">Hardware Key (Device Token)</label>
+                      <button
+                        type="button"
+                        onClick={() => handleGenerateNextKey(deployProject)}
+                        className="text-[10px] font-mono font-bold text-purple-300 hover:text-purple-200 transition-colors inline-flex items-center gap-1 cursor-pointer bg-purple-500/10 px-2 py-0.5 rounded border border-purple-500/30"
+                        title="Click to automatically suggest next serial key"
+                      >
+                        <Sparkles className="w-2.5 h-2.5 text-purple-400" /> Auto-Generate
+                      </button>
+                    </div>
                     <input
                       type="text"
                       placeholder="e.g. GKB-RELAY-0002, GKB-FAN-0002"
@@ -2346,78 +2775,140 @@ export default function IoTDevicePortal() {
         {/* ================= 4. ADMIN ONLY: HARDWARE FLEET CATALOG ================= */}
         {isAdmin && activeTab === 'fleet' && (
           <div className="space-y-8 animate-fadeIn">
-            {/* Quick Connect Hero */}
-            <section className="rounded-3xl border border-cyan-500/30 bg-gradient-to-r from-slate-900 via-slate-900/90 to-slate-950 p-6 sm:p-10 shadow-[0_0_35px_rgba(6,182,212,0.15)] space-y-5">
+            {/* Executive Command Hero */}
+            <section className="rounded-3xl border border-cyan-500/30 bg-gradient-to-r from-slate-900 via-slate-900/90 to-slate-950 p-6 sm:p-8 shadow-[0_0_35px_rgba(6,182,212,0.15)] space-y-6">
               <div className="flex flex-wrap items-center justify-between gap-3">
-                <span className="inline-flex items-center gap-1.5 rounded-full border border-cyan-400/40 bg-cyan-400/10 px-3 py-1 text-xs font-bold uppercase tracking-widest text-cyan-300">
-                  <Radio className="h-3.5 w-3.5 animate-pulse" /> Direct Hardware Connector
+                <span className="inline-flex items-center gap-1.5 rounded-full border border-purple-400/40 bg-purple-400/10 px-3 py-1 text-xs font-mono font-bold uppercase tracking-wider text-purple-300">
+                  <ShieldCheck className="h-3.5 w-3.5" /> GKB Executive Fleet Hub
                 </span>
-                <span className="text-xs font-mono font-bold text-purple-300 bg-purple-500/10 px-3 py-1 rounded-full border border-purple-500/30">
-                  Admin Fleet Overview
+                <span className="text-xs font-mono font-bold text-cyan-300 bg-cyan-500/10 px-3 py-1 rounded-full border border-cyan-500/30 flex items-center gap-1.5">
+                  <span className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse" />
+                  Supabase RLS & Telemetry Active
                 </span>
               </div>
 
-              <h2 className="text-3xl sm:text-5xl font-black tracking-tight text-white leading-tight">
-                CONNECT YOUR GKB IOT DEVICE
-              </h2>
-              <p className="max-w-2xl text-sm sm:text-base text-slate-300 leading-relaxed">
-                Enter your device's provisioned special key below to immediately launch its real-time telemetry dashboard, sensor feeds, and relay controls.
-              </p>
+              <div>
+                <h2 className="text-2xl sm:text-4xl font-black tracking-tight text-white leading-tight">
+                  HARDWARE FLEET COMMAND CENTER
+                </h2>
+                <p className="max-w-2xl text-xs sm:text-sm text-slate-300 mt-1 leading-relaxed">
+                  Real-time administration portal for provisioned ESP32 microcontroller nodes, customer deployments across Ghana, and cloud telemetry streams.
+                </p>
+              </div>
 
-              {/* Input Key Form */}
-              <form onSubmit={handleKeySearch} className="flex max-w-2xl flex-col gap-3 sm:flex-row pt-2">
-                <input
-                  type="text"
-                  placeholder="Enter Special Key (e.g. GKB-LIGHT-0001, GKB-RELAY-0001…)"
-                  value={inputKey}
-                  onChange={e => setInputKey(e.target.value)}
-                  className="min-w-0 flex-1 rounded-xl border border-slate-700 bg-slate-950 px-4 py-3 font-mono text-sm text-white focus:border-cyan-400 focus:outline-none"
-                  required
-                />
-                <button
-                  type="submit"
-                  disabled={linkBusy}
-                  className="inline-flex items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-cyan-500 to-purple-600 px-6 py-3 text-sm font-bold uppercase tracking-wider text-black shadow-lg shadow-cyan-500/25 hover:opacity-90 transition-all disabled:opacity-50 cursor-pointer"
-                >
-                  <Cpu className="h-4 w-4" />
-                  Connect Key
-                </button>
-              </form>
+              {/* Executive KPI Stats Bar */}
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 pt-1">
+                <div className="p-4 rounded-2xl border border-cyan-500/20 bg-slate-950/80">
+                  <div className="flex items-center justify-between text-slate-400 mb-1">
+                    <span className="text-[11px] font-mono uppercase tracking-wider font-semibold">Deployed Fleet Keys</span>
+                    <Key className="w-4 h-4 text-cyan-400" />
+                  </div>
+                  <p className="text-2xl font-black text-white font-mono">{deployedDevices.length}</p>
+                  <p className="text-[10px] text-cyan-400 mt-1">Authorized factory keys</p>
+                </div>
 
-              {/* Demo Keys Quick Selector Pills */}
-              <div className="space-y-2 pt-2">
-                <p className="text-xs font-bold uppercase tracking-wider text-slate-400">Quick Test Keys:</p>
-                <div className="flex flex-wrap gap-2">
-                  {deployedDevices.slice(0, 8).map(def => (
-                    <button
-                      key={def.key}
-                      type="button"
-                      onClick={() => {
-                        setSelectedDevice(def);
-                        setActiveTab('dashboard');
-                        window.scrollTo({ top: 0, behavior: 'smooth' });
-                      }}
-                      className="rounded-lg border border-slate-800 bg-slate-900/80 px-2.5 py-1 text-xs font-mono text-cyan-300 hover:border-cyan-400 hover:bg-cyan-500/10 transition-colors cursor-pointer"
-                    >
-                      {def.name.split(' (')[0].replace('ESP32 ', '')} ({def.key})
-                    </button>
-                  ))}
+                <div className="p-4 rounded-2xl border border-purple-500/20 bg-slate-950/80 cursor-pointer hover:border-purple-400/50 transition-colors" onClick={() => setActiveTab('customer-devices')}>
+                  <div className="flex items-center justify-between text-slate-400 mb-1">
+                    <span className="text-[11px] font-mono uppercase tracking-wider font-semibold">Customer Nodes</span>
+                    <Users className="w-4 h-4 text-purple-400" />
+                  </div>
+                  <p className="text-2xl font-black text-white font-mono">{allCustomerDevices.length}</p>
+                  <p className="text-[10px] text-purple-400 mt-1 flex items-center gap-1">
+                    <span>Manage customer accounts</span>
+                    <ArrowRight className="w-3 h-3" />
+                  </p>
+                </div>
+
+                <div className="p-4 rounded-2xl border border-emerald-500/20 bg-slate-950/80">
+                  <div className="flex items-center justify-between text-slate-400 mb-1">
+                    <span className="text-[11px] font-mono uppercase tracking-wider font-semibold">Cloud Gateway</span>
+                    <Wifi className="w-4 h-4 text-emerald-400" />
+                  </div>
+                  <p className="text-xl font-black text-emerald-400 font-mono">2.4GHz + BLE</p>
+                  <p className="text-[10px] text-slate-400 mt-1">Web Bluetooth v4.2 GATT</p>
+                </div>
+
+                <div className="p-4 rounded-2xl border border-rose-500/20 bg-slate-950/80 cursor-pointer hover:border-rose-400/50 transition-colors" onClick={() => setActiveTab('support')}>
+                  <div className="flex items-center justify-between text-slate-400 mb-1">
+                    <span className="text-[11px] font-mono uppercase tracking-wider font-semibold">Support Desk</span>
+                    <Wrench className="w-4 h-4 text-rose-400" />
+                  </div>
+                  <p className="text-2xl font-black text-white font-mono">
+                    {complaints.filter(c => !c.solved).length} <span className="text-xs font-normal text-slate-400 font-sans">pending</span>
+                  </p>
+                  <p className="text-[10px] text-rose-400 mt-1 flex items-center gap-1">
+                    <span>{complaints.length} total tickets</span>
+                    <ArrowRight className="w-3 h-3" />
+                  </p>
                 </div>
               </div>
 
-              {linkMessage && (
-                <p className={`text-xs p-3 rounded-lg border ${linkMessageIsError ? 'border-red-500/30 bg-red-500/10 text-red-300' : 'border-emerald-500/30 bg-emerald-500/10 text-emerald-300'}`}>
-                  {linkMessage}
-                </p>
-              )}
+              {/* Quick Actions Bar */}
+              <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-slate-800/80">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setActiveTab('deploy');
+                    setDeployError('');
+                    setDeploySuccess('');
+                  }}
+                  className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-purple-500/15 border border-purple-400/50 text-purple-300 text-xs font-bold hover:bg-purple-500/25 transition-all cursor-pointer"
+                >
+                  <Plus className="w-3.5 h-3.5" /> Deploy New Hardware Key
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('customer-devices')}
+                  className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-cyan-500/15 border border-cyan-400/50 text-cyan-300 text-xs font-bold hover:bg-cyan-500/25 transition-all cursor-pointer"
+                >
+                  <Users className="w-3.5 h-3.5" /> Review Customer Devices ({allCustomerDevices.length})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setBleTargetDevice(selectedDevice || deployedDevices[0]);
+                    setBleModalOpen(true);
+                  }}
+                  className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-slate-800 border border-slate-700 text-slate-200 text-xs font-bold hover:bg-slate-700 transition-all cursor-pointer"
+                >
+                  <Bluetooth className="w-3.5 h-3.5 text-cyan-400" /> Open BLE Provisioner
+                </button>
+              </div>
+
+              {/* Compact Key Search */}
+              <div className="pt-2">
+                <form onSubmit={handleKeySearch} className="flex max-w-xl flex-col gap-2 sm:flex-row">
+                  <input
+                    type="text"
+                    placeholder="Quick jump by hardware key (e.g. GKB-LIGHT-0001, GKB-RELAY-0001…)"
+                    value={inputKey}
+                    onChange={e => setInputKey(e.target.value)}
+                    className="min-w-0 flex-1 rounded-xl border border-slate-700 bg-slate-950 px-3.5 py-2.5 font-mono text-xs text-white focus:border-cyan-400 focus:outline-none"
+                  />
+                  <button
+                    type="submit"
+                    disabled={linkBusy}
+                    className="inline-flex items-center justify-center gap-1.5 rounded-xl bg-cyan-500 px-5 py-2.5 text-xs font-bold uppercase tracking-wider text-slate-950 shadow-md shadow-cyan-500/20 hover:bg-cyan-400 transition-all disabled:opacity-50 cursor-pointer"
+                  >
+                    <Cpu className="h-3.5 w-3.5" />
+                    Launch
+                  </button>
+                </form>
+
+                {linkMessage && (
+                  <p className={`text-xs p-2.5 rounded-lg border mt-2 ${linkMessageIsError ? 'border-red-500/30 bg-red-500/10 text-red-300' : 'border-emerald-500/30 bg-emerald-500/10 text-emerald-300'}`}>
+                    {linkMessage}
+                  </p>
+                )}
+              </div>
             </section>
 
             {/* Hardware Fleet Catalog Cards */}
             <section className="space-y-4">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                 <div>
-                  <h3 className="text-xl sm:text-2xl font-black text-white">Supported Hardware Devices ({deployedDevices.length})</h3>
-                  <p className="text-xs text-slate-400 mt-1">Select any verified hardware node to launch its live control interface and cloud telemetry.</p>
+                  <h3 className="text-xl sm:text-2xl font-black text-white">Active Fleet Systems ({deployedDevices.length})</h3>
+                  <p className="text-xs text-slate-400 mt-1">Select any production hardware node to launch its live control interface or print casing QR stickers.</p>
                 </div>
               </div>
 
@@ -2425,6 +2916,9 @@ export default function IoTDevicePortal() {
                 {deployedDevices.map(device => {
                   const isLight = device.project === 'light-control';
                   const isRelay = device.project === 'relay-test';
+                  const isSecurity = device.project === 'smart-security-system';
+                  const isWater = device.project === 'water-tank-monitor';
+                  const isFan = device.project === 'fan-regulator';
 
                   return (
                     <article
@@ -2434,21 +2928,27 @@ export default function IoTDevicePortal() {
                           ? 'border-amber-500/40 bg-gradient-to-br from-amber-500/10 via-slate-900 to-slate-950 shadow-[0_0_20px_rgba(245,158,11,0.1)]'
                           : isRelay
                             ? 'border-cyan-500/40 bg-gradient-to-br from-cyan-500/10 via-slate-900 to-slate-950 shadow-[0_0_20px_rgba(6,182,212,0.1)]'
-                            : 'border-slate-800 bg-slate-900/60 hover:border-slate-700'
+                            : isSecurity
+                              ? 'border-rose-500/40 bg-gradient-to-br from-rose-500/10 via-slate-900 to-slate-950 shadow-[0_0_20px_rgba(244,63,94,0.1)]'
+                              : isWater
+                                ? 'border-sky-500/40 bg-gradient-to-br from-sky-500/10 via-slate-900 to-slate-950 shadow-[0_0_20px_rgba(14,165,233,0.1)]'
+                                : isFan
+                                  ? 'border-blue-500/40 bg-gradient-to-br from-blue-500/10 via-slate-900 to-slate-950 shadow-[0_0_20px_rgba(59,130,246,0.1)]'
+                                  : 'border-slate-800 bg-slate-900/60 hover:border-slate-700'
                       }`}
                     >
                       <div className="space-y-3">
                         <div className="flex items-center justify-between">
-                          <span className={`text-[10px] font-mono uppercase tracking-wider font-bold px-2 py-0.5 rounded-md border ${
-                            isLight
-                              ? 'text-amber-300 bg-amber-500/15 border-amber-500/30'
-                              : isRelay
-                                ? 'text-cyan-300 bg-cyan-500/15 border-cyan-500/30'
-                                : 'text-slate-300 bg-slate-800 border-slate-700'
-                          }`}>
-                            {device.key}
-                          </span>
-                          <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-full">
+                          <button
+                            type="button"
+                            onClick={() => handleCopyKey(device.key)}
+                            className="inline-flex items-center gap-1.5 font-mono text-[11px] font-bold px-2 py-0.5 rounded-md border border-cyan-500/30 bg-cyan-500/10 text-cyan-300 hover:border-cyan-400 transition-colors cursor-pointer"
+                            title="Click to copy key"
+                          >
+                            <span>{device.key}</span>
+                            {copiedKey === device.key ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3 text-slate-400" />}
+                          </button>
+                          <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-full border border-emerald-500/20">
                             <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" /> Verified Node
                           </span>
                         </div>
@@ -2459,16 +2959,16 @@ export default function IoTDevicePortal() {
                               <Lightbulb className="h-4 w-4 text-amber-400 shrink-0" />
                             ) : isRelay ? (
                               <Cpu className="h-4 w-4 text-cyan-400 shrink-0" />
-                            ) : device.project === 'water-tank-monitor' ? (
+                            ) : isWater ? (
                               <Droplets className="h-4 w-4 text-sky-400 shrink-0" />
+                            ) : isSecurity ? (
+                              <Shield className="h-4 w-4 text-rose-400 shrink-0" />
+                            ) : isFan ? (
+                              <Wind className="h-4 w-4 text-blue-400 shrink-0" />
                             ) : device.project === 'fuel-tank-monitor' ? (
                               <Fuel className="h-4 w-4 text-emerald-400 shrink-0" />
-                            ) : device.project === 'prepaid-energy-meter' ? (
-                              <Zap className="h-4 w-4 text-yellow-400 shrink-0" />
-                            ) : device.project === 'fan-regulator' ? (
-                              <Wind className="h-4 w-4 text-blue-400 shrink-0" />
                             ) : (
-                              <Shield className="h-4 w-4 text-purple-400 shrink-0" />
+                              <Zap className="h-4 w-4 text-yellow-400 shrink-0" />
                             )}
                             {device.name}
                           </h4>
@@ -2476,24 +2976,31 @@ export default function IoTDevicePortal() {
                         </div>
                       </div>
 
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setSelectedDevice(device);
-                          setActiveTab('dashboard');
-                          window.scrollTo({ top: 0, behavior: 'smooth' });
-                        }}
-                        className={`mt-5 inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-xs font-bold uppercase tracking-wider transition-all cursor-pointer ${
-                          isLight
-                            ? 'bg-gradient-to-r from-amber-400 to-amber-500 text-black shadow-md shadow-amber-500/20 hover:opacity-90'
-                            : isRelay
-                              ? 'bg-gradient-to-r from-cyan-400 to-cyan-500 text-black shadow-md shadow-cyan-500/20 hover:opacity-90'
-                              : 'border border-slate-700 bg-slate-800 text-slate-200 hover:bg-slate-700 hover:text-white'
-                        }`}
-                      >
-                        Open Dashboard
-                        <ArrowRight className="h-3.5 w-3.5" />
-                      </button>
+                      <div className="mt-5 flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setSelectedDevice(device);
+                            setActiveTab('dashboard');
+                            window.scrollTo({ top: 0, behavior: 'smooth' });
+                          }}
+                          className="flex-1 inline-flex items-center justify-center gap-1.5 rounded-xl px-4 py-2.5 text-xs font-bold uppercase tracking-wider bg-slate-800 text-slate-100 hover:bg-cyan-500 hover:text-slate-950 transition-all cursor-pointer shadow-md"
+                        >
+                          <span>Open Live Control</span>
+                          <ArrowRight className="h-3.5 w-3.5" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setBleTargetDevice(device);
+                            setBleModalOpen(true);
+                          }}
+                          title="Print / View Casing QR Sticker"
+                          className="p-2.5 rounded-xl border border-slate-700 bg-slate-800 text-slate-300 hover:text-purple-300 hover:border-purple-400/60 transition-colors cursor-pointer"
+                        >
+                          <QrCode className="w-4 h-4" />
+                        </button>
+                      </div>
                     </article>
                   );
                 })}
@@ -2502,165 +3009,243 @@ export default function IoTDevicePortal() {
           </div>
         )}
 
-        {/* ================= 5. PRIMARY DASHBOARD VIEW ================= */}
-        {activeTab === 'dashboard' && (
-          <div className="space-y-6 animate-fadeIn">
-            {/* Top Navigation & Status Bar */}
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3.5 rounded-2xl border border-slate-800 bg-slate-900/90 shadow-md">
-              <button
-                type="button"
-                onClick={() => {
-                  setActiveTab(isAdmin ? 'fleet' : 'my-devices');
-                  window.scrollTo({ top: 0, behavior: 'smooth' });
-                }}
-                className="inline-flex items-center gap-2 rounded-xl border border-slate-700 bg-slate-800 px-3.5 py-1.5 text-xs font-bold text-slate-200 hover:border-cyan-400 hover:text-cyan-300 transition-colors cursor-pointer w-fit"
-              >
-                <ArrowRight className="h-4 w-4 rotate-180" />
-                {isAdmin ? 'Back to Hardware Fleet' : 'Back to My Devices'}
-              </button>
-
-              <div className="flex flex-wrap items-center gap-2">
-                <span className="text-xs text-slate-400">Active Node:</span>
-                {selectedDevice ? (
-                  <span className="text-xs font-mono font-bold text-cyan-300 bg-slate-950 px-3 py-1 rounded-lg border border-cyan-500/30">
-                    {selectedDevice.name} ({selectedDevice.key})
-                  </span>
-                ) : (
-                  <span className="text-xs text-amber-300 bg-amber-500/10 px-3 py-1 rounded-lg border border-amber-500/30">
-                    No Device Selected
-                  </span>
-                )}
-                {selectedDevice && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setBleTargetDevice(selectedDevice);
-                      setBleModalOpen(true);
-                    }}
-                    className="inline-flex items-center gap-1.5 rounded-lg border border-cyan-500/30 bg-cyan-500/10 px-2.5 py-1 text-xs font-bold text-cyan-300 hover:bg-cyan-500/20 transition-colors cursor-pointer"
-                  >
-                    <Bluetooth className="w-3.5 h-3.5" />
-                    BLE Provision
-                  </button>
-                )}
-              </div>
+        {/* ================= ADMIN ONLY: CUSTOMER DEVICES & BILLING CONTROL ================= */}
+        {isAdmin && activeTab === 'customer-devices' && (
+          <div className="space-y-8 animate-fadeIn">
+            <div className="p-6 sm:p-8 rounded-3xl border border-cyan-500/30 bg-gradient-to-r from-slate-900 via-slate-900/90 to-slate-950 shadow-[0_0_35px_rgba(6,182,212,0.15)]">
+              <span className="inline-flex items-center gap-1.5 rounded-full border border-cyan-400/40 bg-cyan-400/10 px-3 py-1 text-xs font-bold uppercase tracking-widest text-cyan-300">
+                <Users className="h-3.5 w-3.5" /> Customer Accounts Fleet
+              </span>
+              <h2 className="text-2xl sm:text-4xl font-black text-white mt-2">Customer Registered Devices</h2>
+              <p className="text-xs sm:text-sm text-slate-300 mt-1 max-w-2xl">
+                Inspect all customer-linked smart systems registered across Ghana. You can pause billing (suspending live cloud telemetry on delinquent accounts) or unlink devices remotely.
+              </p>
             </div>
 
-            {/* Device Switcher Bar */}
-            {isAdmin ? (
-              /* Admin: Full Fleet Pills Switcher */
-              <div className="space-y-2">
-                <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Admin Fleet Quick Switcher:</p>
-                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-2">
-                  {deployedDevices.map(d => {
-                    const isSelected = selectedDevice?.key === d.key;
-                    return (
-                      <button
-                        key={d.key}
-                        type="button"
-                        onClick={() => {
-                          setSelectedDevice(d);
-                          setLinkMessage('');
-                        }}
-                        className={`p-2.5 rounded-xl border text-left transition-all text-xs cursor-pointer ${
-                          isSelected
-                            ? 'border-cyan-400 bg-cyan-500/20 shadow-md shadow-cyan-500/20 ring-1 ring-cyan-400'
-                            : 'border-slate-800 bg-slate-900/60 hover:bg-slate-850'
-                        }`}
-                      >
-                        <span className="block font-mono text-[10px] text-cyan-300 truncate">{d.key}</span>
-                        <span className="block font-bold text-white truncate mt-0.5">{d.name.split(' (')[0].replace('ESP32 ', '')}</span>
-                      </button>
-                    );
-                  })}
+            <div className="rounded-3xl border border-slate-800 bg-slate-900/80 p-6 space-y-4 shadow-xl">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-800 pb-3">
+                <div>
+                  <h3 className="text-base font-bold text-white flex items-center gap-2">
+                    <Radio className="w-4 h-4 text-cyan-400" /> Registered Customer Nodes ({allCustomerDevices.length})
+                  </h3>
+                  <p className="text-[11px] text-slate-400 mt-0.5">Live links stored in public.gkb_user_devices with RLS security.</p>
                 </div>
-              </div>
-            ) : (
-              /* Client: Only Their Linked Devices Switcher */
-              linkedDevices.length > 1 && (
-                <div className="space-y-2">
-                  <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">My Devices:</p>
-                  <div className="flex flex-wrap gap-2">
-                    {linkedDevices.map(d => {
-                      const isSelected = selectedDevice?.key === d.key;
-                      return (
-                        <button
-                          key={d.key}
-                          type="button"
-                          onClick={() => {
-                            setSelectedDevice(d);
-                            setLinkMessage('');
-                          }}
-                          className={`px-3 py-1.5 rounded-xl border text-xs font-bold transition-all cursor-pointer ${
-                            isSelected
-                              ? 'border-cyan-400 bg-cyan-500/20 text-cyan-300 ring-1 ring-cyan-400'
-                              : 'border-slate-800 bg-slate-900 text-slate-300 hover:border-slate-700'
-                          }`}
-                        >
-                          {d.name} ({d.key})
-                        </button>
-                      );
-                    })}
-                    <button
-                      type="button"
-                      onClick={() => setActiveTab('add-device')}
-                      className="px-3 py-1.5 rounded-xl border border-dashed border-cyan-500/40 text-cyan-400 text-xs font-bold hover:bg-cyan-500/10 transition-colors cursor-pointer"
-                    >
-                      + Add Another Device
-                    </button>
-                  </div>
-                </div>
-              )
-            )}
 
-            {/* Dashboard Component Display */}
-            {!selectedDevice ? (
-              <div className="p-12 text-center rounded-3xl border border-slate-800 bg-slate-900/50 space-y-4">
-                <Cpu className="w-12 h-12 text-cyan-400 mx-auto opacity-70" />
-                <h3 className="text-lg font-bold text-white">No Active Hardware Selected</h3>
-                <p className="text-xs text-slate-400 max-w-sm mx-auto">
-                  Please link a device using your hardware casing key or choose one from My Devices.
-                </p>
-                <button
-                  type="button"
-                  onClick={() => setActiveTab('add-device')}
-                  className="px-5 py-2.5 rounded-xl bg-cyan-500 text-black font-bold text-xs uppercase cursor-pointer"
-                >
-                  Add Device Key
-                </button>
+                <div className="flex items-center gap-2">
+                  <div className="relative">
+                    <input
+                      type="text"
+                      placeholder="Filter customer devices..."
+                      value={customerFilter}
+                      onChange={e => setCustomerFilter(e.target.value)}
+                      className="rounded-xl border border-slate-700 bg-slate-950 py-1.5 pl-8 pr-3 text-xs text-white placeholder-slate-500 focus:border-cyan-400 focus:outline-none"
+                    />
+                    <Search className="w-3.5 h-3.5 text-slate-500 absolute left-2.5 top-2.5 pointer-events-none" />
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => void fetchAllCustomerDevices()}
+                    className="p-2 rounded-xl border border-slate-700 bg-slate-800 text-slate-300 hover:text-cyan-300 cursor-pointer"
+                    title="Refresh customer devices"
+                  >
+                    <RefreshCw className={`w-3.5 h-3.5 ${customerDevicesLoading ? 'animate-spin' : ''}`} />
+                  </button>
+                </div>
               </div>
-            ) : selectedDevice.project === 'relay-test' ? (
-              <RelayTestDashboard mode="service" />
-            ) : selectedDevice.project === 'light-control' ? (
-              <LightControlDashboard mode="service" device={selectedDevice} />
-            ) : selectedDevice.project === 'water-tank-monitor' || selectedDevice.key === 'GKB-SWP-0001' ? (
-              <WaterTankDashboard mode="service" device={selectedDevice} />
-            ) : selectedDevice.project === 'smart-security-system' || selectedDevice.key === 'GKB-SEC-0001' ? (
-              <SmartSecurityDashboard mode="service" device={selectedDevice} />
-            ) : selectedDevice.project === 'fan-regulator' || selectedDevice.key === 'GKB-FAN-0001' || selectedDevice.key === 'GKB-SFLC-0001' ? (
-              <FanRegulatorDashboard mode="service" device={selectedDevice} />
-            ) : (
-              <GenericFleetPreviewDashboard
-                device={selectedDevice}
-                onSwitchToFanRegulator={() => setSelectedDevice(defaultDevices[6])}
-                onSwitchToSecurity={() => setSelectedDevice(defaultDevices[3])}
-                onSwitchToWaterTank={() => setSelectedDevice(defaultDevices[2])}
-                onSwitchToLightControl={() => setSelectedDevice(defaultDevices[1])}
-                onSwitchToRelayPilot={() => setSelectedDevice(defaultDevices[0])}
-              />
-            )}
+
+              {allCustomerDevices.length === 0 ? (
+                <div className="py-12 text-center text-slate-400 text-xs space-y-2">
+                  <Users className="w-8 h-8 text-slate-600 mx-auto" />
+                  <p>No customer devices have been linked yet.</p>
+                </div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left text-xs text-slate-300">
+                    <thead className="bg-slate-950/80 text-[10px] uppercase font-bold text-slate-400 border-b border-slate-800">
+                      <tr>
+                        <th className="py-3 px-3">Device Key</th>
+                        <th className="py-3 px-3">Device Name</th>
+                        <th className="py-3 px-3">User ID</th>
+                        <th className="py-3 px-3">Billing Status</th>
+                        <th className="py-3 px-3 text-right">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-800/60 font-sans">
+                      {allCustomerDevices
+                        .filter(d =>
+                          !customerFilter ||
+                          d.device_key.toLowerCase().includes(customerFilter.toLowerCase()) ||
+                          d.device_name.toLowerCase().includes(customerFilter.toLowerCase()) ||
+                          (d.user_id && d.user_id.toLowerCase().includes(customerFilter.toLowerCase()))
+                        )
+                        .map(device => {
+                          const isPaused = Boolean(device.is_paused);
+
+                          return (
+                            <tr key={`${device.user_id}-${device.device_key}`} className="hover:bg-slate-800/40 transition-colors">
+                              <td className="py-3 px-3 font-mono font-bold text-cyan-300 whitespace-nowrap">
+                                {device.device_key}
+                              </td>
+                              <td className="py-3 px-3 font-medium text-white">
+                                {device.device_name}
+                              </td>
+                              <td className="py-3 px-3 text-slate-400 font-mono text-[10px] whitespace-nowrap">
+                                {device.user_id ? `${device.user_id.slice(0, 8)}...` : 'Unknown'}
+                              </td>
+                              <td className="py-3 px-3 whitespace-nowrap">
+                                {isPaused ? (
+                                  <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-rose-500/15 border border-rose-500/40 text-rose-300">
+                                    <PauseCircle className="w-3 h-3" /> Billing Paused
+                                  </span>
+                                ) : (
+                                  <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/15 border border-emerald-500/40 text-emerald-300">
+                                    <PlayCircle className="w-3 h-3" /> Active & Online
+                                  </span>
+                                )}
+                              </td>
+                              <td className="py-3 px-3 text-right whitespace-nowrap space-x-2">
+                                <button
+                                  type="button"
+                                  onClick={() => void handleTogglePauseCustomerDevice(device.user_id, device.device_key, isPaused)}
+                                  className={`px-3 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                                    isPaused
+                                      ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 hover:bg-emerald-500/30'
+                                      : 'bg-amber-500/20 text-amber-300 border border-amber-500/40 hover:bg-amber-500/30'
+                                  }`}
+                                >
+                                  {isPaused ? 'Restore Service' : 'Pause Billing'}
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => void handleDeleteCustomerDevice(device.user_id, device.device_key)}
+                                  title="Unlink customer device"
+                                  className="p-1.5 rounded-lg border border-red-500/30 bg-red-500/10 text-red-300 hover:bg-red-500/20 transition-colors cursor-pointer"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </button>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
           </div>
         )}
 
-        {/* ================= 6. SUPPORT VIEW ================= */}
+        {/* ================= 6. SUPPORT VIEW (WITH ADMIN COMPLAINTS DESK) ================= */}
         {activeTab === 'support' && (
-          <div className="max-w-3xl mx-auto space-y-6 animate-fadeIn">
+          <div className="max-w-4xl mx-auto space-y-8 animate-fadeIn">
+            {isAdmin && (
+              /* Admin Complaints / Support Desk */
+              <div className="p-6 sm:p-8 rounded-3xl border border-rose-500/30 bg-slate-900/90 shadow-xl space-y-5">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-800 pb-4">
+                  <div>
+                    <span className="inline-flex items-center gap-1.5 text-xs font-mono font-bold text-rose-400 bg-rose-500/10 px-2.5 py-0.5 rounded-full border border-rose-500/30 uppercase">
+                      <ShieldCheck className="w-3.5 h-3.5" /> Helpdesk Administration
+                    </span>
+                    <h3 className="text-xl sm:text-2xl font-black text-white mt-1">Customer Support Complaints ({complaints.length})</h3>
+                  </div>
+
+                  {/* Filter Pills */}
+                  <div className="flex items-center gap-1.5 bg-slate-950 p-1 rounded-xl border border-slate-800">
+                    <button
+                      type="button"
+                      onClick={() => setComplaintFilter('all')}
+                      className={`px-3 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${complaintFilter === 'all' ? 'bg-cyan-500 text-slate-950' : 'text-slate-400 hover:text-white'}`}
+                    >
+                      All ({complaints.length})
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setComplaintFilter('pending')}
+                      className={`px-3 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${complaintFilter === 'pending' ? 'bg-rose-500 text-white' : 'text-slate-400 hover:text-white'}`}
+                    >
+                      Pending ({complaints.filter(c => !c.solved).length})
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setComplaintFilter('resolved')}
+                      className={`px-3 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${complaintFilter === 'resolved' ? 'bg-emerald-500 text-slate-950' : 'text-slate-400 hover:text-white'}`}
+                    >
+                      Resolved ({complaints.filter(c => c.solved).length})
+                    </button>
+                  </div>
+                </div>
+
+                {complaints.length === 0 ? (
+                  <p className="text-xs text-slate-400 text-center py-6">No customer support complaints currently filed.</p>
+                ) : (
+                  <div className="space-y-3">
+                    {complaints
+                      .filter(c => {
+                        if (complaintFilter === 'pending') return !c.solved;
+                        if (complaintFilter === 'resolved') return c.solved;
+                        return true;
+                      })
+                      .map(item => (
+                        <div
+                          key={item.id}
+                          className={`p-4 rounded-2xl border transition-all flex flex-col sm:flex-row sm:items-center justify-between gap-3 ${
+                            item.solved ? 'border-emerald-500/30 bg-emerald-500/5' : 'border-rose-500/30 bg-rose-500/5'
+                          }`}
+                        >
+                          <div className="space-y-1">
+                            <div className="flex items-center gap-2">
+                              <span className="text-xs font-bold text-white">{item.client_email || 'Customer'}</span>
+                              <span className="text-[10px] text-slate-500 font-mono">
+                                {new Date(item.created_at).toLocaleDateString()}
+                              </span>
+                              {item.solved ? (
+                                <span className="text-[10px] font-bold text-emerald-400 bg-emerald-500/20 px-2 py-0.5 rounded-full border border-emerald-500/30">
+                                  Resolved
+                                </span>
+                              ) : (
+                                <span className="text-[10px] font-bold text-rose-400 bg-rose-500/20 px-2 py-0.5 rounded-full border border-rose-500/30">
+                                  Action Required
+                                </span>
+                              )}
+                            </div>
+                            <p className="text-xs text-slate-300 leading-relaxed">{item.complaint}</p>
+                          </div>
+
+                          <div className="flex items-center gap-2 shrink-0 self-end sm:self-center">
+                            <button
+                              type="button"
+                              onClick={() => void handleToggleSolveComplaint(item.id, Boolean(item.solved))}
+                              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                                item.solved
+                                  ? 'bg-slate-800 text-slate-300 hover:bg-slate-700'
+                                  : 'bg-emerald-500 text-slate-950 hover:bg-emerald-400 shadow-md shadow-emerald-500/20'
+                              }`}
+                            >
+                              {item.solved ? 'Reopen Ticket' : 'Mark Resolved'}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => void handleDeleteComplaint(item.id)}
+                              className="p-1.5 rounded-xl border border-red-500/30 bg-red-500/10 text-red-300 hover:bg-red-500/20 transition-colors cursor-pointer"
+                              title="Delete ticket"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Hardware Troubleshooting Docs */}
             <div className="rounded-2xl border border-cyan-500/30 bg-slate-900/80 p-6 space-y-3">
               <h3 className="text-xl font-bold text-white flex items-center gap-2">
                 <Wrench className="h-5 w-5 text-cyan-400" /> Hardware Provisioning & Troubleshooting
               </h3>
               <p className="text-xs text-slate-300 leading-relaxed">
-                Step-by-step guidance for provisioning, flashing, and operating the GKB ESP32 Smart Relay module.
+                Step-by-step guidance for provisioning, flashing, and operating GKB ESP32 Smart Systems.
               </p>
             </div>
 
