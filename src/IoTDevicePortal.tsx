@@ -3308,6 +3308,156 @@ export default function IoTDevicePortal() {
           </div>
         )}
 
+        {/* ================= 5. PRIMARY DASHBOARD VIEW ================= */}
+        {activeTab === 'dashboard' && (
+          <div className="space-y-6 animate-fadeIn">
+            {/* Top Navigation & Status Bar */}
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3.5 rounded-2xl border border-slate-800 bg-slate-900/90 shadow-md">
+              <button
+                type="button"
+                onClick={() => {
+                  setActiveTab(isAdmin ? 'fleet' : 'my-devices');
+                  window.scrollTo({ top: 0, behavior: 'smooth' });
+                }}
+                className="inline-flex items-center gap-2 rounded-xl border border-slate-700 bg-slate-800 px-3.5 py-1.5 text-xs font-bold text-slate-200 hover:border-cyan-400 hover:text-cyan-300 transition-colors cursor-pointer w-fit"
+              >
+                <ArrowRight className="h-4 w-4 rotate-180" />
+                {isAdmin ? 'Back to Hardware Fleet' : 'Back to My Devices'}
+              </button>
+
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-xs text-slate-400">Active Node:</span>
+                {selectedDevice ? (
+                  <span className="text-xs font-mono font-bold text-cyan-300 bg-slate-950 px-3 py-1 rounded-lg border border-cyan-500/30">
+                    {selectedDevice.name} ({selectedDevice.key})
+                  </span>
+                ) : (
+                  <span className="text-xs text-amber-300 bg-amber-500/10 px-3 py-1 rounded-lg border border-amber-500/30">
+                    No Device Selected
+                  </span>
+                )}
+                {selectedDevice && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setBleTargetDevice(selectedDevice);
+                      setBleModalOpen(true);
+                    }}
+                    className="inline-flex items-center gap-1.5 rounded-lg border border-cyan-500/30 bg-cyan-500/10 px-2.5 py-1 text-xs font-bold text-cyan-300 hover:bg-cyan-500/20 transition-colors cursor-pointer"
+                  >
+                    <Bluetooth className="w-3.5 h-3.5" />
+                    BLE Provision
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {/* Device Switcher Bar */}
+            {isAdmin ? (
+              /* Admin: Full Fleet Pills Switcher */
+              <div className="space-y-2">
+                <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Admin Fleet Quick Switcher:</p>
+                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-2">
+                  {deployedDevices.map(d => {
+                    const isSelected = selectedDevice?.key === d.key;
+                    return (
+                      <button
+                        key={d.key}
+                        type="button"
+                        onClick={() => {
+                          setSelectedDevice(d);
+                          setLinkMessage('');
+                        }}
+                        className={`p-2.5 rounded-xl border text-left transition-all text-xs cursor-pointer ${
+                          isSelected
+                            ? 'border-cyan-400 bg-cyan-500/20 shadow-md shadow-cyan-500/20 ring-1 ring-cyan-400'
+                            : 'border-slate-800 bg-slate-900/60 hover:bg-slate-850'
+                        }`}
+                      >
+                        <span className="block font-mono text-[10px] text-cyan-300 truncate">{d.key}</span>
+                        <span className="block font-bold text-white truncate mt-0.5">{d.name.split(' (')[0].replace('ESP32 ', '')}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            ) : (
+              /* Client: Only Their Linked Devices Switcher */
+              linkedDevices.length > 1 && (
+                <div className="space-y-2">
+                  <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">My Devices:</p>
+                  <div className="flex flex-wrap gap-2">
+                    {linkedDevices.map(d => {
+                      const isSelected = selectedDevice?.key === d.key;
+                      return (
+                        <button
+                          key={d.key}
+                          type="button"
+                          onClick={() => {
+                            setSelectedDevice(d);
+                            setLinkMessage('');
+                          }}
+                          className={`px-3 py-1.5 rounded-xl border text-xs font-bold transition-all cursor-pointer ${
+                            isSelected
+                              ? 'border-cyan-400 bg-cyan-500/20 text-cyan-300 ring-1 ring-cyan-400'
+                              : 'border-slate-800 bg-slate-900 text-slate-300 hover:border-slate-700'
+                          }`}
+                        >
+                          {d.name} ({d.key})
+                        </button>
+                      );
+                    })}
+                    <button
+                      type="button"
+                      onClick={() => setActiveTab('add-device')}
+                      className="px-3 py-1.5 rounded-xl border border-dashed border-cyan-500/40 text-cyan-400 text-xs font-bold hover:bg-cyan-500/10 transition-colors cursor-pointer"
+                    >
+                      + Add Another Device
+                    </button>
+                  </div>
+                </div>
+              )
+            )}
+
+            {/* Dashboard Component Display */}
+            {!selectedDevice ? (
+              <div className="p-12 text-center rounded-3xl border border-slate-800 bg-slate-900/50 space-y-4">
+                <Cpu className="w-12 h-12 text-cyan-400 mx-auto opacity-70" />
+                <h3 className="text-lg font-bold text-white">No Active Hardware Selected</h3>
+                <p className="text-xs text-slate-400 max-w-sm mx-auto">
+                  Please link a device using your hardware casing key or choose one from My Devices.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('add-device')}
+                  className="px-5 py-2.5 rounded-xl bg-cyan-500 text-black font-bold text-xs uppercase cursor-pointer"
+                >
+                  Add Device Key
+                </button>
+              </div>
+            ) : selectedDevice.project === 'relay-test' ? (
+              <RelayTestDashboard mode="service" />
+            ) : selectedDevice.project === 'light-control' ? (
+              <LightControlDashboard mode="service" device={selectedDevice} />
+            ) : selectedDevice.project === 'water-tank-monitor' || selectedDevice.key === 'GKB-SWP-0001' ? (
+              <WaterTankDashboard mode="service" device={selectedDevice} />
+            ) : selectedDevice.project === 'smart-security-system' || selectedDevice.key === 'GKB-SEC-0001' ? (
+              <SmartSecurityDashboard mode="service" device={selectedDevice} />
+            ) : selectedDevice.project === 'fan-regulator' || selectedDevice.key === 'GKB-FAN-0001' || selectedDevice.key === 'GKB-SFLC-0001' ? (
+              <FanRegulatorDashboard mode="service" device={selectedDevice} />
+            ) : (
+              <GenericFleetPreviewDashboard
+                device={selectedDevice}
+                onSwitchToFanRegulator={() => setSelectedDevice(defaultDevices[6])}
+                onSwitchToSecurity={() => setSelectedDevice(defaultDevices[3])}
+                onSwitchToWaterTank={() => setSelectedDevice(defaultDevices[2])}
+                onSwitchToLightControl={() => setSelectedDevice(defaultDevices[1])}
+                onSwitchToRelayPilot={() => setSelectedDevice(defaultDevices[0])}
+              />
+            )}
+          </div>
+        )}
+
         {/* ================= 6. SUPPORT VIEW (WITH ADMIN COMPLAINTS DESK) ================= */}
         {activeTab === 'support' && (
           <div className="max-w-4xl mx-auto space-y-8 animate-fadeIn">
