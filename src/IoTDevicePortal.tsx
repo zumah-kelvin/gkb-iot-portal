@@ -2033,422 +2033,307 @@ export default function IoTDevicePortal() {
             </div>
           </div>
 
-          {/* Navigation Bar - Responsive & Spacious */}
-          <nav aria-label="Main navigation" className="hidden lg:flex items-center gap-1.5 shrink-0">
-            {isAdmin ? (
-              <>
-                <button
-                  type="button"
-                  onClick={() => setActiveTab('fleet')}
-                  className={`px-3 py-2 rounded-xl text-xs sm:text-sm font-bold transition-all cursor-pointer ${
-                    activeTab === 'fleet'
-                      ? 'bg-cyan-500/15 text-cyan-300 border border-cyan-400/60 shadow-[0_0_15px_rgba(6,182,212,0.25)]'
-                      : 'text-slate-400 hover:text-cyan-300'
-                  }`}
-                >
-                  <span className="flex items-center gap-1.5">
-                    <Layers className="h-4 w-4" />
-                    Fleet Hub
-                  </span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setActiveTab('deploy');
-                    setDeployError('');
-                    setDeploySuccess('');
-                  }}
-                  className={`px-3 py-2 rounded-xl text-xs sm:text-sm font-bold transition-all cursor-pointer ${
-                    activeTab === 'deploy'
-                      ? 'bg-purple-500/15 text-purple-300 border border-purple-400/60 shadow-[0_0_15px_rgba(168,85,247,0.25)]'
-                      : 'text-slate-400 hover:text-purple-300'
-                  }`}
-                >
-                  <span className="flex items-center gap-1.5">
-                    <Key className="h-4 w-4" />
-                    Deploy Keys
-                  </span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setActiveTab('customer-devices')}
-                  className={`px-3 py-2 rounded-xl text-xs sm:text-sm font-bold transition-all cursor-pointer ${
-                    activeTab === 'customer-devices'
-                      ? 'bg-cyan-500/15 text-cyan-300 border border-cyan-400/60 shadow-[0_0_15px_rgba(6,182,212,0.25)]'
-                      : 'text-slate-400 hover:text-cyan-300'
-                  }`}
-                >
-                  <span className="flex items-center gap-1.5">
-                    <Users className="h-4 w-4" />
-                    Customer Devices {allCustomerDevices.length > 0 && `(${allCustomerDevices.length})`}
-                  </span>
-                </button>
-              </>
-            ) : (
-              <>
-                <button
-                  type="button"
-                  onClick={() => setActiveTab('my-devices')}
-                  className={`px-3.5 py-2 rounded-xl text-xs sm:text-sm font-bold transition-all cursor-pointer ${
-                    activeTab === 'my-devices'
-                      ? 'bg-cyan-500/15 text-cyan-300 border border-cyan-400/60 shadow-[0_0_15px_rgba(6,182,212,0.25)]'
-                      : 'text-slate-400 hover:text-cyan-300'
-                  }`}
-                >
-                  <span className="flex items-center gap-1.5">
-                    <Radio className="h-4 w-4" />
-                    My Devices {linkedDevices.length > 0 && `(${linkedDevices.length})`}
-                  </span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setActiveTab('add-device');
-                    setClientLinkError('');
-                    setClientLinkSuccess('');
-                  }}
-                  className={`px-3.5 py-2 rounded-xl text-xs sm:text-sm font-bold transition-all cursor-pointer ${
-                    activeTab === 'add-device'
-                      ? 'bg-gradient-to-r from-cyan-500 to-purple-600 text-black font-black shadow-[0_0_15px_rgba(6,182,212,0.35)]'
-                      : 'bg-cyan-500/10 text-cyan-300 border border-cyan-500/30 hover:bg-cyan-500/20'
-                  }`}
-                >
-                  <span className="flex items-center gap-1.5">
-                    <Plus className="h-4 w-4" />
-                    Add Device
-                  </span>
-                </button>
-              </>
-            )}
-            <button
-              type="button"
-              onClick={() => setActiveTab('dashboard')}
-              className={`px-3 py-2 rounded-xl text-xs sm:text-sm font-bold transition-all cursor-pointer ${
-                activeTab === 'dashboard'
-                  ? 'bg-cyan-500/15 text-cyan-300 border border-cyan-400/60 shadow-[0_0_15px_rgba(6,182,212,0.25)]'
-                  : 'text-slate-400 hover:text-cyan-300'
-              }`}
-            >
-              <span className="flex items-center gap-1.5">
-                <Cpu className="h-4 w-4" />
-                Active Device
+          {/* Right Area: Current Active Screen Indicator + The Three Lines Menu Button (☰) */}
+          <div className="flex shrink-0 items-center gap-2 sm:gap-3">
+            {/* Active view indicator badge */}
+            <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-slate-900/90 border border-cyan-500/30 text-xs font-mono font-bold text-cyan-300 shadow-[0_0_12px_rgba(6,182,212,0.15)]">
+              <span className="w-2 h-2 rounded-full bg-cyan-400 animate-pulse shrink-0"></span>
+              <span className="truncate max-w-[120px] sm:max-w-[180px]">
+                {activeTab === 'fleet' && 'Fleet Hub'}
+                {activeTab === 'deploy' && 'Deploy Keys'}
+                {activeTab === 'customer-devices' && `Customer Devices (${allCustomerDevices.length})`}
+                {activeTab === 'my-devices' && `My Devices (${linkedDevices.length})`}
+                {activeTab === 'add-device' && 'Add Device'}
+                {activeTab === 'dashboard' && 'Active Device'}
+                {activeTab === 'support' && (isAdmin ? 'Support Desk' : 'Support')}
+                {activeTab === 'contact' && 'Contact'}
               </span>
-            </button>
-            <button
-              type="button"
-              onClick={() => setActiveTab('support')}
-              className={`px-3 py-2 rounded-xl text-xs sm:text-sm font-bold transition-all cursor-pointer ${
-                activeTab === 'support'
-                  ? 'bg-cyan-500/15 text-cyan-300 border border-cyan-400/60 shadow-[0_0_15px_rgba(6,182,212,0.25)]'
-                  : 'text-slate-400 hover:text-cyan-300'
-              }`}
-            >
-              <span className="flex items-center gap-1.5">
-                <Wrench className="h-4 w-4" />
-                {isAdmin ? 'Support Desk' : 'Support & Docs'}
-                {isAdmin && complaints.filter(c => !c.solved).length > 0 && (
-                  <span className="ml-1 px-1.5 py-0.2 bg-rose-500 text-white text-[10px] font-bold rounded-full">
-                    {complaints.filter(c => !c.solved).length}
-                  </span>
-                )}
-              </span>
-            </button>
-            <button
-              type="button"
-              onClick={() => setActiveTab('contact')}
-              className={`px-3 py-2 rounded-xl text-xs sm:text-sm font-bold transition-all cursor-pointer ${
-                activeTab === 'contact'
-                  ? 'bg-cyan-500/15 text-cyan-300 border border-cyan-400/60 shadow-[0_0_15px_rgba(6,182,212,0.25)]'
-                  : 'text-slate-400 hover:text-cyan-300'
-              }`}
-            >
-              Contact
-            </button>
-          </nav>
+            </div>
 
-          {/* Right Actions & Admin Profile */}
-          <div className="flex shrink-0 items-center space-x-2 sm:space-x-3">
-            <button
-              type="button"
-              onClick={() => setIsLightMode(!isLightMode)}
-              className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-cyan-500/30 bg-slate-900 px-2.5 py-2 text-xs font-medium text-slate-300 transition-colors hover:border-cyan-400 hover:text-cyan-300 sm:px-3 cursor-pointer"
-            >
-              {isLightMode ? <Moon className="h-4 w-4" /> : <Sun className="h-4 w-4" />}
-              <span className="hidden sm:inline">{isLightMode ? 'Dark' : 'Light'}</span>
-            </button>
-
-            {user && (
-              <>
-                <div className="flex items-center space-x-2 bg-slate-900/90 px-3 py-1.5 rounded-xl border border-cyan-500/30 shadow-[0_0_12px_rgba(6,182,212,0.15)]">
-                  <div className="flex items-center gap-2">
-                    <div className="w-7 h-7 rounded-lg bg-gradient-to-tr from-cyan-500 to-purple-600 flex items-center justify-center text-xs font-black text-slate-950 shadow-md">
-                      {isAdmin ? 'Z' : (user.firstName ? user.firstName[0] : (user.email[0] || 'U')).toUpperCase()}
-                    </div>
-                    <div className="hidden sm:block text-left">
-                      <p className="text-xs font-bold text-white leading-none">
-                        {isAdmin ? 'Zumah Kelvin (CEO)' : (user.firstName ? `${user.firstName} ${user.lastName}` : user.email)}
-                      </p>
-                      <span className="text-[9px] uppercase font-mono text-cyan-400 font-bold flex items-center gap-1 mt-0.5">
-                        {isAdmin ? <><ShieldCheck className="w-2.5 h-2.5 text-purple-400" /> SYSTEM ADMIN</> : user.role}
-                      </span>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Explicit Dedicated Logout Button */}
-                <button
-                  type="button"
-                  onClick={() => void handleSignOut()}
-                  title="Sign out of GKB IoT Portal"
-                  className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-rose-500/15 hover:bg-rose-500/25 text-rose-300 border border-rose-500/40 hover:border-rose-400/70 text-xs font-bold transition-all cursor-pointer shadow-[0_0_12px_rgba(244,63,94,0.15)] shrink-0"
-                >
-                  <LogOut className="h-4 w-4 text-rose-400" />
-                  <span className="hidden sm:inline">Logout</span>
-                </button>
-              </>
-            )}
-
-            {/* Three lines / dots menu toggle button to open up the menu bar */}
+            {/* The Three Lines Menu Button (☰) */}
             <button
               type="button"
               onClick={() => setMobileMenuOpen(prev => !prev)}
-              title={mobileMenuOpen ? 'Close Menu' : 'Open Menu (Navigation & Settings)'}
+              title={mobileMenuOpen ? 'Close Menu' : 'Open Navigation Menu (☰)'}
               aria-label={mobileMenuOpen ? 'Close Navigation Menu' : 'Open Navigation Menu'}
-              className="inline-flex items-center justify-center p-2 rounded-xl border border-cyan-500/40 bg-slate-900 text-cyan-300 hover:text-white hover:border-cyan-400 hover:bg-cyan-500/15 transition-all cursor-pointer shadow-[0_0_12px_rgba(6,182,212,0.15)]"
+              className="inline-flex items-center gap-2 px-3 sm:px-3.5 py-2 rounded-xl border border-cyan-500/40 bg-slate-900 text-cyan-300 hover:text-white hover:border-cyan-400 hover:bg-cyan-500/20 transition-all cursor-pointer shadow-[0_0_15px_rgba(6,182,212,0.2)]"
             >
-              {mobileMenuOpen ? <X className="h-5 w-5 text-rose-400" /> : <Menu className="h-5 w-5 text-cyan-400" />}
+              {mobileMenuOpen ? (
+                <>
+                  <X className="h-5 w-5 text-rose-400" />
+                  <span className="text-xs font-bold text-rose-300 hidden sm:inline">Close</span>
+                </>
+              ) : (
+                <>
+                  <Menu className="h-5 w-5 text-cyan-400" />
+                  <span className="text-xs font-bold font-mono tracking-wider hidden sm:inline">MENU</span>
+                </>
+              )}
             </button>
           </div>
         </div>
 
-        {/* Dropdown / Responsive Menu Drawer */}
+        {/* The Three Lines (☰) Dropdown Drawer */}
         {mobileMenuOpen && (
-          <div className="border-t border-cyan-500/20 bg-slate-950/95 backdrop-blur-xl px-4 py-5 shadow-2xl animate-fadeIn space-y-4">
-            {user && (
-              <div className="flex items-center justify-between pb-3 border-b border-slate-800/80">
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-cyan-500 to-purple-600 flex items-center justify-center text-sm font-black text-slate-950 shadow-md">
-                    {isAdmin ? 'Z' : (user.firstName ? user.firstName[0] : (user.email[0] || 'U')).toUpperCase()}
+          <div className="border-t border-cyan-500/20 bg-slate-950/98 backdrop-blur-2xl px-4 sm:px-6 lg:px-8 py-5 shadow-2xl animate-fadeIn space-y-5">
+            <div className="max-w-7xl mx-auto space-y-5">
+              {/* Profile & Controls Bar */}
+              <div className="flex flex-wrap items-center justify-between gap-3 pb-4 border-b border-slate-800/80">
+                {user ? (
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 sm:w-11 sm:h-11 rounded-xl bg-gradient-to-tr from-cyan-500 to-purple-600 flex items-center justify-center text-sm font-black text-slate-950 shadow-md shrink-0">
+                      {isAdmin ? 'Z' : (user.firstName ? user.firstName[0] : (user.email[0] || 'U')).toUpperCase()}
+                    </div>
+                    <div>
+                      <p className="text-sm font-bold text-white leading-tight">
+                        {isAdmin ? 'Zumah Kelvin (CEO)' : (user.firstName ? `${user.firstName} ${user.lastName}` : user.email)}
+                      </p>
+                      <p className="text-xs text-slate-400">{user.email}</p>
+                      <span className="inline-flex items-center gap-1 mt-1 text-[10px] font-mono font-bold uppercase text-cyan-400">
+                        {isAdmin ? <><ShieldCheck className="w-3 h-3 text-purple-400" /> SYSTEM ADMIN</> : user.role}
+                      </span>
+                    </div>
                   </div>
-                  <div>
-                    <p className="text-sm font-bold text-white leading-tight">
-                      {isAdmin ? 'Zumah Kelvin (CEO)' : (user.firstName ? `${user.firstName} ${user.lastName}` : user.email)}
-                    </p>
-                    <p className="text-xs text-slate-400">{user.email}</p>
-                    <span className="inline-flex items-center gap-1 mt-1 text-[10px] font-mono font-bold uppercase text-cyan-400">
-                      {isAdmin ? <><ShieldCheck className="w-3 h-3 text-purple-400" /> SYSTEM ADMIN</> : user.role}
-                    </span>
-                  </div>
+                ) : (
+                  <div className="text-sm font-bold text-slate-300">GKB IoT Fleet Management</div>
+                )}
+
+                <div className="flex items-center gap-2">
+                  {/* Light / Dark Mode Toggle inside the menu */}
+                  <button
+                    type="button"
+                    onClick={() => setIsLightMode(!isLightMode)}
+                    className="inline-flex items-center justify-center gap-2 rounded-xl border border-cyan-500/30 bg-slate-900 px-3.5 py-2 text-xs font-bold text-slate-200 transition-colors hover:border-cyan-400 hover:text-cyan-300 cursor-pointer shadow-sm"
+                  >
+                    {isLightMode ? <Moon className="h-4 w-4 text-purple-400" /> : <Sun className="h-4 w-4 text-amber-400" />}
+                    <span>{isLightMode ? 'Dark Mode' : 'Light Mode'}</span>
+                  </button>
+
+                  {user && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setMobileMenuOpen(false);
+                        void handleSignOut();
+                      }}
+                      className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-rose-500/15 text-rose-300 border border-rose-500/40 text-xs font-bold hover:bg-rose-500/25 transition-colors cursor-pointer shadow-sm"
+                    >
+                      <LogOut className="h-4 w-4 text-rose-400" />
+                      <span>Logout</span>
+                    </button>
+                  )}
                 </div>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setMobileMenuOpen(false);
-                    void handleSignOut();
-                  }}
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-rose-500/15 text-rose-300 border border-rose-500/40 text-xs font-bold hover:bg-rose-500/25 transition-colors cursor-pointer"
-                >
-                  <LogOut className="h-3.5 w-3.5 text-rose-400" />
-                  Logout
-                </button>
               </div>
-            )}
 
-            {/* Menu Navigation Links */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-              {isAdmin ? (
-                <>
+              {/* Portal Views Navigation */}
+              <div className="space-y-2">
+                <p className="text-[11px] font-mono font-bold uppercase tracking-wider text-slate-400">Portal Views & Controls</p>
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5">
+                  {isAdmin ? (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => { setActiveTab('fleet'); setMobileMenuOpen(false); }}
+                        className={`flex items-center justify-between p-3.5 rounded-xl text-sm font-bold transition-all text-left cursor-pointer border ${
+                          activeTab === 'fleet'
+                            ? 'bg-cyan-500/20 text-cyan-300 border-cyan-400/60 shadow-[0_0_15px_rgba(6,182,212,0.25)]'
+                            : 'bg-slate-900/60 border-slate-800 text-slate-300 hover:bg-slate-900 hover:text-cyan-300 hover:border-cyan-500/40'
+                        }`}
+                      >
+                        <span className="flex items-center gap-3">
+                          <Layers className="h-5 w-5 text-cyan-400" />
+                          <span>Fleet Hub</span>
+                        </span>
+                        <span className="text-[10px] font-mono text-cyan-400/80 uppercase">Hardware Fleet</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => { setActiveTab('deploy'); setDeployError(''); setDeploySuccess(''); setMobileMenuOpen(false); }}
+                        className={`flex items-center justify-between p-3.5 rounded-xl text-sm font-bold transition-all text-left cursor-pointer border ${
+                          activeTab === 'deploy'
+                            ? 'bg-purple-500/20 text-purple-300 border-purple-400/60 shadow-[0_0_15px_rgba(168,85,247,0.25)]'
+                            : 'bg-slate-900/60 border-slate-800 text-slate-300 hover:bg-slate-900 hover:text-purple-300 hover:border-purple-500/40'
+                        }`}
+                      >
+                        <span className="flex items-center gap-3">
+                          <Key className="h-5 w-5 text-purple-400" />
+                          <span>Deploy Keys</span>
+                        </span>
+                        <span className="text-[10px] font-mono text-purple-400/80 uppercase">License Matrix</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => { setActiveTab('customer-devices'); setMobileMenuOpen(false); }}
+                        className={`flex items-center justify-between p-3.5 rounded-xl text-sm font-bold transition-all text-left cursor-pointer border ${
+                          activeTab === 'customer-devices'
+                            ? 'bg-cyan-500/20 text-cyan-300 border-cyan-400/60 shadow-[0_0_15px_rgba(6,182,212,0.25)]'
+                            : 'bg-slate-900/60 border-slate-800 text-slate-300 hover:bg-slate-900 hover:text-cyan-300 hover:border-cyan-500/40'
+                        }`}
+                      >
+                        <span className="flex items-center gap-3">
+                          <Users className="h-5 w-5 text-cyan-400" />
+                          <span>Customer Devices</span>
+                        </span>
+                        {allCustomerDevices.length > 0 && (
+                          <span className="px-2 py-0.5 rounded-full bg-cyan-500/20 text-cyan-300 text-xs font-mono font-bold border border-cyan-500/30">
+                            {allCustomerDevices.length}
+                          </span>
+                        )}
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => { setActiveTab('my-devices'); setMobileMenuOpen(false); }}
+                        className={`flex items-center justify-between p-3.5 rounded-xl text-sm font-bold transition-all text-left cursor-pointer border ${
+                          activeTab === 'my-devices'
+                            ? 'bg-cyan-500/20 text-cyan-300 border-cyan-400/60 shadow-[0_0_15px_rgba(6,182,212,0.25)]'
+                            : 'bg-slate-900/60 border-slate-800 text-slate-300 hover:bg-slate-900 hover:text-cyan-300 hover:border-cyan-500/40'
+                        }`}
+                      >
+                        <span className="flex items-center gap-3">
+                          <Radio className="h-5 w-5 text-cyan-400" />
+                          <span>My Devices</span>
+                        </span>
+                        {linkedDevices.length > 0 && (
+                          <span className="px-2 py-0.5 rounded-full bg-cyan-500/20 text-cyan-300 text-xs font-mono font-bold border border-cyan-500/30">
+                            {linkedDevices.length}
+                          </span>
+                        )}
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => { setActiveTab('add-device'); setClientLinkError(''); setClientLinkSuccess(''); setMobileMenuOpen(false); }}
+                        className={`flex items-center justify-between p-3.5 rounded-xl text-sm font-bold transition-all text-left cursor-pointer border ${
+                          activeTab === 'add-device'
+                            ? 'bg-gradient-to-r from-cyan-500 to-purple-600 text-black font-black shadow-[0_0_15px_rgba(6,182,212,0.35)]'
+                            : 'bg-cyan-500/10 border-cyan-500/30 text-cyan-300 hover:bg-cyan-500/20'
+                        }`}
+                      >
+                        <span className="flex items-center gap-3">
+                          <Plus className="h-5 w-5" />
+                          <span>+ Add Device</span>
+                        </span>
+                        <span className="text-[10px] font-mono uppercase">Link Key</span>
+                      </button>
+                    </>
+                  )}
+
                   <button
                     type="button"
-                    onClick={() => { setActiveTab('fleet'); setMobileMenuOpen(false); }}
-                    className={`flex items-center gap-2.5 px-3.5 py-2.5 rounded-xl text-xs sm:text-sm font-bold transition-all text-left cursor-pointer ${
-                      activeTab === 'fleet' ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-400/50' : 'text-slate-300 hover:bg-slate-900 hover:text-cyan-300'
+                    onClick={() => { setActiveTab('dashboard'); setMobileMenuOpen(false); }}
+                    className={`flex items-center justify-between p-3.5 rounded-xl text-sm font-bold transition-all text-left cursor-pointer border ${
+                      activeTab === 'dashboard'
+                        ? 'bg-cyan-500/20 text-cyan-300 border-cyan-400/60 shadow-[0_0_15px_rgba(6,182,212,0.25)]'
+                        : 'bg-slate-900/60 border-slate-800 text-slate-300 hover:bg-slate-900 hover:text-cyan-300 hover:border-cyan-500/40'
                     }`}
                   >
-                    <Layers className="h-4 w-4 text-cyan-400" />
-                    <span>Fleet Hub</span>
+                    <span className="flex items-center gap-3">
+                      <Cpu className="h-5 w-5 text-cyan-400" />
+                      <span>Active Device</span>
+                    </span>
+                    <span className="text-[10px] font-mono text-cyan-400/80 uppercase">Telemetry & Controls</span>
                   </button>
+
                   <button
                     type="button"
-                    onClick={() => { setActiveTab('deploy'); setDeployError(''); setDeploySuccess(''); setMobileMenuOpen(false); }}
-                    className={`flex items-center gap-2.5 px-3.5 py-2.5 rounded-xl text-xs sm:text-sm font-bold transition-all text-left cursor-pointer ${
-                      activeTab === 'deploy' ? 'bg-purple-500/20 text-purple-300 border border-purple-400/50' : 'text-slate-300 hover:bg-slate-900 hover:text-purple-300'
+                    onClick={() => { setActiveTab('support'); setMobileMenuOpen(false); }}
+                    className={`flex items-center justify-between p-3.5 rounded-xl text-sm font-bold transition-all text-left cursor-pointer border ${
+                      activeTab === 'support'
+                        ? 'bg-cyan-500/20 text-cyan-300 border-cyan-400/60 shadow-[0_0_15px_rgba(6,182,212,0.25)]'
+                        : 'bg-slate-900/60 border-slate-800 text-slate-300 hover:bg-slate-900 hover:text-cyan-300 hover:border-cyan-500/40'
                     }`}
                   >
-                    <Key className="h-4 w-4 text-purple-400" />
-                    <span>Deploy Keys</span>
+                    <span className="flex items-center gap-3">
+                      <Wrench className="h-5 w-5 text-cyan-400" />
+                      <span>{isAdmin ? 'Support Desk' : 'Support & Docs'}</span>
+                    </span>
+                    {isAdmin && complaints.filter(c => !c.solved).length > 0 && (
+                      <span className="px-2 py-0.5 rounded-full bg-rose-500 text-white text-xs font-mono font-bold">
+                        {complaints.filter(c => !c.solved).length} open
+                      </span>
+                    )}
                   </button>
+
                   <button
                     type="button"
-                    onClick={() => { setActiveTab('customer-devices'); setMobileMenuOpen(false); }}
-                    className={`flex items-center gap-2.5 px-3.5 py-2.5 rounded-xl text-xs sm:text-sm font-bold transition-all text-left cursor-pointer ${
-                      activeTab === 'customer-devices' ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-400/50' : 'text-slate-300 hover:bg-slate-900 hover:text-cyan-300'
+                    onClick={() => { setActiveTab('contact'); setMobileMenuOpen(false); }}
+                    className={`flex items-center justify-between p-3.5 rounded-xl text-sm font-bold transition-all text-left cursor-pointer border ${
+                      activeTab === 'contact'
+                        ? 'bg-cyan-500/20 text-cyan-300 border-cyan-400/60 shadow-[0_0_15px_rgba(6,182,212,0.25)]'
+                        : 'bg-slate-900/60 border-slate-800 text-slate-300 hover:bg-slate-900 hover:text-cyan-300 hover:border-cyan-500/40'
                     }`}
                   >
-                    <Users className="h-4 w-4 text-cyan-400" />
-                    <span>Customer Devices {allCustomerDevices.length > 0 && `(${allCustomerDevices.length})`}</span>
+                    <span className="flex items-center gap-3">
+                      <Phone className="h-5 w-5 text-cyan-400" />
+                      <span>Contact Us</span>
+                    </span>
+                    <span className="text-[10px] font-mono text-cyan-400/80 uppercase">Support Lines</span>
                   </button>
-                </>
-              ) : (
-                <>
+                </div>
+              </div>
+
+              {/* Direct Engineering Contacts */}
+              <div className="pt-3 border-t border-slate-800/80 space-y-2">
+                <p className="text-[11px] font-mono font-bold uppercase tracking-wider text-slate-400">Direct Contact Channels</p>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+                  <a
+                    href="https://wa.me/233552117787"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex items-center justify-center gap-2 py-2.5 px-3 rounded-xl bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-300 border border-emerald-500/40 text-xs font-bold transition-all shadow-sm"
+                  >
+                    <span>💬 WhatsApp</span>
+                  </a>
+                  <a
+                    href="tel:+233552117787"
+                    className="flex items-center justify-center gap-2 py-2.5 px-3 rounded-xl bg-cyan-500/15 hover:bg-cyan-500/25 text-cyan-300 border border-cyan-500/40 text-xs font-bold transition-all shadow-sm"
+                  >
+                    <Phone className="h-3.5 w-3.5 text-cyan-400" />
+                    <span>Direct Call</span>
+                  </a>
+                  <a
+                    href="https://instagram.com/gkb_technologies"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex items-center justify-center gap-2 py-2.5 px-3 rounded-xl bg-pink-500/15 hover:bg-pink-500/25 text-pink-300 border border-pink-500/40 text-xs font-bold transition-all shadow-sm"
+                  >
+                    <span>📸 Instagram</span>
+                  </a>
+                  <a
+                    href="https://www.tiktok.com/@gkbtech"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex items-center justify-center gap-2 py-2.5 px-3 rounded-xl bg-purple-500/15 hover:bg-purple-500/25 text-purple-300 border border-purple-500/40 text-xs font-bold transition-all shadow-sm"
+                  >
+                    <span>🎵 TikTok</span>
+                  </a>
+                </div>
+              </div>
+
+              {/* Bottom Dedicated Logout Action */}
+              {user && (
+                <div className="pt-2 border-t border-slate-800/80">
                   <button
                     type="button"
-                    onClick={() => { setActiveTab('my-devices'); setMobileMenuOpen(false); }}
-                    className={`flex items-center gap-2.5 px-3.5 py-2.5 rounded-xl text-xs sm:text-sm font-bold transition-all text-left cursor-pointer ${
-                      activeTab === 'my-devices' ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-400/50' : 'text-slate-300 hover:bg-slate-900 hover:text-cyan-300'
-                    }`}
+                    onClick={() => {
+                      setMobileMenuOpen(false);
+                      void handleSignOut();
+                    }}
+                    className="w-full flex items-center justify-center gap-2 py-3 rounded-xl bg-gradient-to-r from-rose-500/20 to-red-600/20 text-rose-300 border border-rose-500/40 hover:bg-rose-500/30 transition-all font-black text-sm cursor-pointer shadow-[0_0_15px_rgba(244,63,94,0.2)]"
                   >
-                    <Radio className="h-4 w-4 text-cyan-400" />
-                    <span>My Devices {linkedDevices.length > 0 && `(${linkedDevices.length})`}</span>
+                    <LogOut className="h-4 w-4 text-rose-400" />
+                    <span>Log Out of GKB IoT Portal</span>
                   </button>
-                  <button
-                    type="button"
-                    onClick={() => { setActiveTab('add-device'); setClientLinkError(''); setClientLinkSuccess(''); setMobileMenuOpen(false); }}
-                    className={`flex items-center gap-2.5 px-3.5 py-2.5 rounded-xl text-xs sm:text-sm font-bold transition-all text-left cursor-pointer ${
-                      activeTab === 'add-device' ? 'bg-gradient-to-r from-cyan-500 to-purple-600 text-black font-black' : 'text-cyan-300 hover:bg-slate-900'
-                    }`}
-                  >
-                    <Plus className="h-4 w-4" />
-                    <span>+ Add Device</span>
-                  </button>
-                </>
+                </div>
               )}
-              <button
-                type="button"
-                onClick={() => { setActiveTab('dashboard'); setMobileMenuOpen(false); }}
-                className={`flex items-center gap-2.5 px-3.5 py-2.5 rounded-xl text-xs sm:text-sm font-bold transition-all text-left cursor-pointer ${
-                  activeTab === 'dashboard' ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-400/50' : 'text-slate-300 hover:bg-slate-900 hover:text-cyan-300'
-                }`}
-              >
-                <Cpu className="h-4 w-4 text-cyan-400" />
-                <span>Active Device</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => { setActiveTab('support'); setMobileMenuOpen(false); }}
-                className={`flex items-center gap-2.5 px-3.5 py-2.5 rounded-xl text-xs sm:text-sm font-bold transition-all text-left cursor-pointer ${
-                  activeTab === 'support' ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-400/50' : 'text-slate-300 hover:bg-slate-900 hover:text-cyan-300'
-                }`}
-              >
-                <Wrench className="h-4 w-4 text-cyan-400" />
-                <span>{isAdmin ? 'Support Desk' : 'Support & Docs'}</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => { setActiveTab('contact'); setMobileMenuOpen(false); }}
-                className={`flex items-center gap-2.5 px-3.5 py-2.5 rounded-xl text-xs sm:text-sm font-bold transition-all text-left cursor-pointer ${
-                  activeTab === 'contact' ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-400/50' : 'text-slate-300 hover:bg-slate-900 hover:text-cyan-300'
-                }`}
-              >
-                <Phone className="h-4 w-4 text-cyan-400" />
-                <span>Contact Engineering</span>
-              </button>
             </div>
-
-            {/* Logout button at bottom of menu drawer */}
-            {user && (
-              <div className="pt-2 border-t border-slate-800/80">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setMobileMenuOpen(false);
-                    void handleSignOut();
-                  }}
-                  className="w-full flex items-center justify-center gap-2 py-3 rounded-xl bg-gradient-to-r from-rose-500/20 to-red-600/20 text-rose-300 border border-rose-500/40 hover:bg-rose-500/30 transition-all font-black text-sm cursor-pointer shadow-[0_0_15px_rgba(244,63,94,0.2)]"
-                >
-                  <LogOut className="h-4 w-4 text-rose-400" />
-                  <span>Log Out of GKB IoT Portal</span>
-                </button>
-              </div>
-            )}
           </div>
         )}
-
-        {/* Mobile Navigation */}
-        <nav className="flex lg:hidden gap-1.5 overflow-x-auto border-t border-slate-800/70 px-3 py-2 scrollbar-none items-center">
-          {isAdmin ? (
-            <>
-              <button
-                type="button"
-                onClick={() => setActiveTab('fleet')}
-                className={`px-3 py-1.5 rounded-md text-xs font-medium whitespace-nowrap cursor-pointer ${activeTab === 'fleet' ? 'bg-cyan-500/10 text-cyan-400 border border-cyan-500/40' : 'text-slate-400'}`}
-              >
-                Fleet Hub
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setActiveTab('deploy');
-                  setDeployError('');
-                  setDeploySuccess('');
-                }}
-                className={`px-3 py-1.5 rounded-md text-xs font-medium whitespace-nowrap cursor-pointer ${activeTab === 'deploy' ? 'bg-purple-500/10 text-purple-400 border border-purple-500/40' : 'text-slate-400'}`}
-              >
-                Deploy Keys
-              </button>
-              <button
-                type="button"
-                onClick={() => setActiveTab('customer-devices')}
-                className={`px-3 py-1.5 rounded-md text-xs font-medium whitespace-nowrap cursor-pointer ${activeTab === 'customer-devices' ? 'bg-cyan-500/10 text-cyan-400 border border-cyan-500/40' : 'text-slate-400'}`}
-              >
-                Customer Devices {allCustomerDevices.length > 0 && `(${allCustomerDevices.length})`}
-              </button>
-            </>
-          ) : (
-            <>
-              <button
-                type="button"
-                onClick={() => setActiveTab('my-devices')}
-                className={`px-3 py-1.5 rounded-md text-xs font-medium whitespace-nowrap cursor-pointer ${activeTab === 'my-devices' ? 'bg-cyan-500/10 text-cyan-400 border border-cyan-500/40' : 'text-slate-400'}`}
-              >
-                My Devices {linkedDevices.length > 0 && `(${linkedDevices.length})`}
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setActiveTab('add-device');
-                  setClientLinkError('');
-                  setClientLinkSuccess('');
-                }}
-                className={`px-3 py-1.5 rounded-md text-xs font-medium whitespace-nowrap cursor-pointer ${activeTab === 'add-device' ? 'bg-gradient-to-r from-cyan-500 to-purple-600 text-black font-bold' : 'text-cyan-400'}`}
-              >
-                + Add Device
-              </button>
-            </>
-          )}
-          <button
-            type="button"
-            onClick={() => setActiveTab('dashboard')}
-            className={`px-3 py-1.5 rounded-md text-xs font-medium whitespace-nowrap cursor-pointer ${activeTab === 'dashboard' ? 'bg-cyan-500/10 text-cyan-400 border border-cyan-500/40' : 'text-slate-400'}`}
-          >
-            Active Device
-          </button>
-          <button
-            type="button"
-            onClick={() => setActiveTab('support')}
-            className={`px-3 py-1.5 rounded-md text-xs font-medium whitespace-nowrap cursor-pointer ${activeTab === 'support' ? 'bg-cyan-500/10 text-cyan-400 border border-cyan-500/40' : 'text-slate-400'}`}
-          >
-            {isAdmin ? 'Support Desk' : 'Support'}
-          </button>
-          <button
-            type="button"
-            onClick={() => setActiveTab('contact')}
-            className={`px-3 py-1.5 rounded-md text-xs font-medium whitespace-nowrap cursor-pointer ${activeTab === 'contact' ? 'bg-cyan-500/10 text-cyan-400 border border-cyan-500/40' : 'text-slate-400'}`}
-          >
-            Contact
-          </button>
-          {user && (
-            <button
-              type="button"
-              onClick={() => void handleSignOut()}
-              title="Sign out of GKB IoT Portal"
-              className="px-3 py-1.5 rounded-md text-xs font-bold whitespace-nowrap cursor-pointer bg-rose-500/15 text-rose-300 border border-rose-500/40 flex items-center gap-1.5 shrink-0 ml-auto hover:bg-rose-500/25 transition-all"
-            >
-              <LogOut className="h-3.5 w-3.5 text-rose-400" />
-              <span>Logout</span>
-            </button>
-          )}
-        </nav>
       </header>
 
       {/* Main Body */}
