@@ -528,10 +528,12 @@ async function sendDirectRestRpc(deviceId: string, channel: number, state: boole
 
 export default function LightControlDashboard({
   mode = 'service',
-  device
+  device,
+  isAdmin = false
 }: {
   mode?: 'test' | 'service';
   device: Device;
+  isAdmin?: boolean;
 }) {
   // Hardware relay channel configuration (2, 4, 6, 8)
   const [selectedChannels, setSelectedChannels] = useState<ChannelOption>(() => {
@@ -1012,7 +1014,9 @@ export default function LightControlDashboard({
               <QrCode className="h-4 w-4" />
               Provision ESP32 (BLE & QR)
             </button>
-            <button
+            {isAdmin && (
+            <>
+              <button
               type="button"
               onClick={() => {
                 setShowLabelInModal(true);
@@ -1031,6 +1035,8 @@ export default function LightControlDashboard({
               <Code className="h-3.5 w-3.5 text-amber-400" />
               ESP32 Firmware
             </button>
+            </>
+          )}
           </div>
         </div>
 
@@ -1072,6 +1078,7 @@ export default function LightControlDashboard({
         </div>
 
         {/* 3-Step Architecture Flow Cards */}
+        {isAdmin && (
         <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
           <div className="rounded-xl border border-slate-800/80 bg-slate-950/60 p-3.5 space-y-1.5">
             <div className="flex items-center justify-between">
@@ -1107,7 +1114,10 @@ export default function LightControlDashboard({
           </div>
         </div>
 
-        {/* Pinout and Hardware Specs Bar */}
+        
+      )}
+
+      {/* Pinout and Hardware Specs Bar */}
         <div className="flex flex-wrap items-center justify-between gap-3 pt-1 text-xs text-slate-400 border-t border-slate-800/60">
           <div className="flex flex-wrap items-center gap-4 font-mono text-[11px]">
             <span className="flex items-center gap-1.5 text-amber-300">

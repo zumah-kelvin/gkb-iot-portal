@@ -1334,10 +1334,12 @@ void loop() {
 
 export default function SmartSecurityDashboard({
   mode = 'service',
-  device
+  device,
+  isAdmin = false
 }: {
   mode?: 'test' | 'service';
   device?: Device;
+  isAdmin?: boolean;
 }) {
   const deviceKey = device?.key || 'GKB-SEC-0001';
 
@@ -1388,6 +1390,8 @@ export default function SmartSecurityDashboard({
   const [testSmsBusy, setTestSmsBusy] = useState(false);
   const [testCallBusy, setTestCallBusy] = useState(false);
   const [showSmsCheatSheet, setShowSmsCheatSheet] = useState(false);
+  const [showContactModal, setShowContactModal] = useState(false);
+  const [showEngineeringModal, setShowEngineeringModal] = useState(false);
 
   const [connectionState, setConnectionState] = useState<'connected' | 'connecting' | 'error'>('connecting');
   const [lastSyncedAt, setLastSyncedAt] = useState<Date | null>(null);
@@ -2034,10 +2038,10 @@ export default function SmartSecurityDashboard({
     <section
       aria-labelledby="security-system-title"
       onClick={ensureAudioContext}
-      className={`space-y-6 rounded-3xl border p-4 sm:p-6 transition-all duration-300 relative overflow-hidden ${
+      className={`space-y-3 rounded-2xl border p-3 sm:p-4 transition-all duration-300 relative overflow-hidden ${
         isAlarmActive
           ? 'gkb-security-red-blink text-white'
-          : 'border-cyan-500/30 bg-slate-900/90 text-slate-100 shadow-2xl shadow-cyan-950/40 backdrop-blur-md'
+          : 'border-cyan-500/30 bg-slate-900/90 text-slate-100 shadow-xl shadow-cyan-950/40 backdrop-blur-md'
       }`}
     >
       <style>{`
@@ -2080,7 +2084,6 @@ export default function SmartSecurityDashboard({
           className="fixed top-5 right-4 sm:right-6 z-[100] max-w-md w-full animate-fadeIn"
         >
           <div className="relative overflow-hidden rounded-2xl border-2 border-red-500 bg-slate-950/95 p-4 sm:p-5 shadow-[0_0_55px_rgba(239,68,68,0.7)] backdrop-blur-xl">
-            {/* Pulsing indicator bar */}
             <div className="absolute top-0 left-0 right-0 h-1.5 bg-gradient-to-r from-red-600 via-amber-400 to-red-600 animate-pulse" />
 
             <div className="flex items-start gap-3.5">
@@ -2120,7 +2123,6 @@ export default function SmartSecurityDashboard({
                   </p>
                 )}
 
-                {/* Popup Action Buttons */}
                 <div className="mt-3.5 flex flex-wrap items-center gap-2">
                   <button
                     type="button"
@@ -2162,99 +2164,104 @@ export default function SmartSecurityDashboard({
         </div>
       )}
 
-      {/* Top Header Badge & Navigation */}
-      <header className="flex flex-col gap-4 rounded-2xl border border-white/10 bg-slate-950/70 p-4 sm:flex-row sm:items-center sm:justify-between sm:p-5 shadow-inner">
-        <div>
-          <div className="mb-2 flex flex-wrap items-center gap-2">
-            <span className="rounded-full border border-cyan-400/40 bg-cyan-400/15 px-3 py-1 text-[10px] font-bold uppercase tracking-[0.18em] text-cyan-300">
-              {mode === 'test' ? 'Hardware test preview' : 'Fleet target'}
-            </span>
-            <span className="rounded-full border border-purple-400/40 bg-purple-400/15 px-3 py-1 text-[10px] font-bold font-mono uppercase tracking-[0.14em] text-purple-300">
-              Key: {deviceKey}
-            </span>
-            <span className={`rounded-full border px-3 py-1 text-[10px] font-bold uppercase tracking-wider ${
-              armedMode === 'away' ? 'border-red-500/50 bg-red-500/25 text-red-200' :
-              armedMode === 'stay' ? 'border-amber-500/50 bg-amber-500/25 text-amber-200' :
-              'border-slate-600 bg-slate-800 text-slate-400'
-            }`}>
-              Armed: {armedMode.toUpperCase()}
-            </span>
-            <span className="rounded-full border border-emerald-500/40 bg-emerald-500/15 px-3 py-1 text-[10px] font-bold uppercase tracking-wider text-emerald-300 flex items-center gap-1.5">
-              <Signal className="h-3 w-3" />
-              GSM: {gsmSimStatus === 'READY' ? `${gsmNetworkOperator} (${gsmSignalCsq}/31)` : gsmSimStatus}
-            </span>
+      {/* ================= 1. CLIENT-FIRST SLEEK HEADER ================= */}
+      <header className="flex flex-col gap-3 rounded-2xl border border-white/10 bg-slate-950/80 p-3 sm:p-4 sm:flex-row sm:items-center sm:justify-between shadow-md">
+        <div className="flex items-center gap-3">
+          <div className={`flex h-10 w-10 items-center justify-center rounded-xl shrink-0 transition-all ${
+            isAlarmActive
+              ? 'bg-red-600 text-white shadow-lg shadow-red-600/50 gkb-siren-strobe'
+              : 'bg-cyan-500/15 border border-cyan-500/30 text-cyan-400 shadow-md shadow-cyan-500/10'
+          }`}>
+            <Shield className="h-5 w-5" />
           </div>
-          <h2 id="security-system-title" className="text-xl font-bold text-white sm:text-2xl flex items-center gap-2">
-            <Shield className="h-6 w-6 text-cyan-400" /> Smart Home Security System v1
-          </h2>
-          <p className="mt-1 text-xs sm:text-sm text-slate-300">
-            HC-SR501 PIR Motion · Siren Strobe (GPIO 23) · Buzzer (GPIO 19) · GSM SIM800L (UART2: GPIO 16/17)
-          </p>
+
+          <div>
+            <div className="flex flex-wrap items-center gap-2">
+              <h2 id="security-system-title" className="text-base sm:text-lg font-black text-white">
+                Smart Home Security
+              </h2>
+              <span className="font-mono text-[10px] text-cyan-300 bg-slate-900 px-2 py-0.5 rounded-md border border-cyan-500/30 font-bold">
+                {deviceKey}
+              </span>
+              <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider ${
+                isAlarmActive ? 'bg-red-500/25 text-red-200 border border-red-500/50 animate-pulse' :
+                armedMode === 'away' ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40' :
+                armedMode === 'stay' ? 'bg-blue-500/20 text-blue-300 border border-blue-500/40' :
+                'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
+              }`}>
+                <span className={`h-1.5 w-1.5 rounded-full ${
+                  isAlarmActive ? 'bg-red-400 animate-ping' :
+                  armedMode === 'disarmed' ? 'bg-emerald-400' : 'bg-amber-400'
+                }`} />
+                {isAlarmActive ? 'ALARM TRIPPED' : armedMode === 'away' ? 'ARMED (AWAY)' : armedMode === 'stay' ? 'ARMED (STAY)' : 'DISARMED'}
+              </span>
+              {gsmSimStatus === 'READY' && (
+                <span className="hidden sm:inline-flex items-center gap-1 text-[10px] font-semibold text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-full border border-emerald-500/20">
+                  <Signal className="h-3 w-3" /> GSM Online
+                </span>
+              )}
+            </div>
+            <p className="text-xs text-slate-300 mt-0.5">
+              {isAlarmActive
+                ? '⚠️ Emergency intrusion alarm active! Siren sounding and emergency contacts dispatched.'
+                : 'Real-time motion sensing, 4-zone perimeter monitoring, and emergency phone dispatch.'}
+            </p>
+          </div>
         </div>
 
-        {/* Quick Actions & Indicators */}
-        <div className="flex flex-wrap items-center gap-2">
-          {/* Desktop Push / Popup Notifications Toggle */}
-          <button
-            type="button"
-            onClick={requestNotificationPermission}
-            title={notificationPermission === 'granted' ? 'Desktop alerts active' : 'Click to enable desktop popups'}
-            className={`inline-flex items-center gap-1.5 rounded-xl border px-3 py-2 text-xs font-bold transition-all cursor-pointer ${
-              notificationPermission === 'granted'
-                ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-300 hover:bg-emerald-500/20'
-                : 'border-amber-500/40 bg-amber-500/10 text-amber-300 hover:bg-amber-500/20 animate-pulse'
-            }`}
-          >
-            {notificationPermission === 'granted' ? <Bell className="h-4 w-4" /> : <BellOff className="h-4 w-4" />}
-            <span>{notificationPermission === 'granted' ? 'Popups Enabled' : 'Enable Popups'}</span>
-          </button>
-
-          <button
-            type="button"
-            onClick={toggleSoundMute}
-            className={`inline-flex items-center gap-2 rounded-xl border px-3.5 py-2 text-xs font-bold transition-all cursor-pointer ${
-              soundMuted
-                ? 'border-slate-700 bg-slate-800 text-slate-400 hover:text-white'
-                : isAlarmActive
-                  ? 'border-amber-400 bg-amber-500/30 text-amber-200 shadow-[0_0_15px_rgba(251,191,36,0.5)] animate-pulse'
-                  : 'border-cyan-500/40 bg-cyan-500/15 text-cyan-300 hover:bg-cyan-500/25'
-            }`}
-          >
-            {soundMuted ? <VolumeX className="h-4 w-4" /> : <Volume2 className="h-4 w-4 text-cyan-300" />}
-            <span>Buzzer: {soundMuted ? 'Muted' : isAlarmActive ? 'Buzzing' : 'Ready'}</span>
-          </button>
-
+        {/* Action Controls for Client */}
+        <div className="flex items-center gap-2 shrink-0 self-start sm:self-center">
           <button
             type="button"
             onClick={() => setProvisionModalOpen(true)}
-            className="inline-flex items-center gap-1.5 rounded-xl border border-cyan-500/40 bg-cyan-500/10 px-3.5 py-2 text-xs font-bold text-cyan-300 hover:bg-cyan-500/20 transition-all cursor-pointer shadow-sm"
+            className="inline-flex items-center gap-1.5 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 px-3.5 py-2 text-xs font-bold text-slate-950 shadow-md shadow-cyan-500/20 hover:brightness-110 transition-all cursor-pointer"
           >
-            <Bluetooth className="h-4 w-4" /> Pair BLE & QR
+            <Bluetooth className="h-3.5 w-3.5" />
+            <span>Pair Device</span>
           </button>
 
+          {/* Sound / Buzzer Mute Toggle */}
           <button
             type="button"
-            onClick={() => setShowFirmwareModal(true)}
-            className="inline-flex items-center gap-1.5 rounded-xl border border-purple-500/40 bg-purple-500/10 px-3.5 py-2 text-xs font-bold text-purple-300 hover:bg-purple-500/20 transition-all cursor-pointer shadow-sm"
+            onClick={toggleSoundMute}
+            title={soundMuted ? 'Buzzer muted - click to enable audio alerts' : 'Buzzer active - click to mute'}
+            className={`p-2 rounded-xl border text-xs font-semibold transition-all cursor-pointer ${
+              soundMuted
+                ? 'border-slate-800 bg-slate-900 text-slate-400 hover:text-white'
+                : isAlarmActive
+                  ? 'border-amber-400 bg-amber-500/30 text-amber-200 animate-pulse'
+                  : 'border-cyan-500/30 bg-cyan-500/10 text-cyan-300 hover:bg-cyan-500/20'
+            }`}
           >
-            <Code className="h-4 w-4" /> View Firmware (.ino)
+            {soundMuted ? <VolumeX className="h-4 w-4" /> : <Volume2 className="h-4 w-4" />}
           </button>
 
+          {/* Notification Permission Toggle */}
           <button
             type="button"
-            onClick={() => setShowSqlModal(true)}
-            className="inline-flex items-center gap-1.5 rounded-xl border border-emerald-500/40 bg-emerald-500/10 px-3.5 py-2 text-xs font-bold text-emerald-300 hover:bg-emerald-500/20 transition-all cursor-pointer shadow-sm"
+            onClick={requestNotificationPermission}
+            title={notificationPermission === 'granted' ? 'Desktop popups active' : 'Click to enable desktop popups'}
+            className={`p-2 rounded-xl border text-xs font-semibold transition-all cursor-pointer ${
+              notificationPermission === 'granted'
+                ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20'
+                : 'border-slate-800 bg-slate-900 text-slate-400 hover:text-white'
+            }`}
           >
-            <Database className="h-4 w-4" /> SQL Setup
+            {notificationPermission === 'granted' ? <Bell className="h-4 w-4" /> : <BellOff className="h-4 w-4" />}
           </button>
 
-          <button
-            type="button"
-            onClick={() => setShowLabelModal(true)}
-            className="inline-flex items-center gap-1.5 rounded-xl border border-slate-700 bg-slate-800 px-3.5 py-2 text-xs font-bold text-slate-300 hover:text-white transition-all cursor-pointer"
-          >
-            <Printer className="h-4 w-4" /> Print QR Label
-          </button>
+          {/* Admin / Engineering Tools Toggle */}
+          {isAdmin && (
+            <button
+              type="button"
+              onClick={() => setShowEngineeringModal(true)}
+              title="Engineering Tools (Firmware, SQL, QR sticker)"
+              className="inline-flex items-center gap-1 rounded-xl border border-purple-500/40 bg-purple-500/15 px-2.5 py-2 text-xs font-bold text-purple-200 hover:bg-purple-500/25 transition-all cursor-pointer"
+            >
+              <Settings className="h-3.5 w-3.5 text-purple-300" />
+              <span className="hidden md:inline">Dev Tools</span>
+            </button>
+          )}
         </div>
       </header>
 
@@ -2268,7 +2275,7 @@ export default function SmartSecurityDashboard({
               audioCtxRef.current.resume().then(() => setAudioNeedsInteraction(false));
             }
           }}
-          className="w-full rounded-xl border border-amber-500 bg-amber-500/20 p-3 text-xs font-bold text-amber-200 text-center animate-bounce cursor-pointer"
+          className="w-full rounded-xl border border-amber-500 bg-amber-500/20 p-2.5 text-xs font-bold text-amber-200 text-center animate-bounce cursor-pointer"
         >
           🔊 Click anywhere to enable browser audio alarm sound
         </button>
@@ -2276,38 +2283,38 @@ export default function SmartSecurityDashboard({
 
       {/* CRITICAL INTRUSION BANNER (Shown when alarm is TRIPPED) */}
       {isAlarmActive && (
-        <div className="rounded-2xl border-2 border-red-500 bg-red-950/80 p-5 flex flex-col sm:flex-row items-center justify-between gap-4 shadow-2xl shadow-red-900/60 animate-pulse">
-          <div className="flex items-center gap-4">
-            <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-red-600 text-white shadow-xl shadow-red-600/70 gkb-siren-strobe">
-              <Siren className="h-8 w-8" />
+        <div className="rounded-2xl border-2 border-red-500 bg-red-950/80 p-3.5 sm:p-4 flex flex-col sm:flex-row items-center justify-between gap-3 shadow-2xl shadow-red-900/60 animate-pulse">
+          <div className="flex items-center gap-3">
+            <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-red-600 text-white shadow-xl shadow-red-600/70 gkb-siren-strobe">
+              <Siren className="h-6 w-6" />
             </div>
             <div>
-              <h3 className="text-lg font-black text-white uppercase tracking-wider">
+              <h3 className="text-sm sm:text-base font-black text-white uppercase tracking-wider">
                 🚨 Intrusion Alert! Alarm Tripped!
               </h3>
-              <p className="text-xs text-red-200">
-                PIR Motion Sensor (GPIO 15) triggered while system armed in <strong>{armedMode.toUpperCase()}</strong> mode. Siren Relay (GPIO 23) active.
+              <p className="text-xs text-red-200 mt-0.5">
+                Motion detected while system armed in <strong>{armedMode.toUpperCase()}</strong> mode. Physical siren strobe active.
               </p>
               {gsmEnabled && primaryPhone && (
                 <p className="text-xs text-amber-300 font-mono mt-1 flex items-center gap-1.5">
                   <PhoneCall className="h-3.5 w-3.5 text-amber-400 animate-bounce" />
-                  GSM Cellular Dispatch: Calling <strong className="text-white">{primaryPhone}</strong> and sending breach SMS!
+                  GSM Auto-Dispatch: Calling <strong className="text-white">{primaryPhone}</strong> and sending alert SMS.
                 </p>
               )}
             </div>
           </div>
-          <div className="flex items-center gap-2 w-full sm:w-auto">
+          <div className="flex items-center gap-2 w-full sm:w-auto shrink-0">
             <button
               type="button"
               onClick={handleClearAlarm}
-              className="flex-1 sm:flex-initial rounded-xl border border-white bg-white px-5 py-2.5 text-xs font-bold text-red-700 hover:bg-slate-100 transition-all cursor-pointer shadow-lg"
+              className="flex-1 sm:flex-initial rounded-xl bg-white px-4 py-2 text-xs font-black text-red-700 hover:bg-slate-100 transition-all cursor-pointer shadow-lg"
             >
               Clear Alarm
             </button>
             <button
               type="button"
               onClick={() => handleSetArmedMode('disarmed')}
-              className="flex-1 sm:flex-initial rounded-xl border border-red-400 bg-red-900/60 px-5 py-2.5 text-xs font-bold text-white hover:bg-red-800 transition-all cursor-pointer"
+              className="flex-1 sm:flex-initial rounded-xl border border-red-400 bg-red-900/70 px-4 py-2 text-xs font-bold text-white hover:bg-red-800 transition-all cursor-pointer"
             >
               Disarm All
             </button>
@@ -2315,599 +2322,268 @@ export default function SmartSecurityDashboard({
         </div>
       )}
 
-      {/* Arming Mode Control Switcher */}
-      <div className="grid gap-4 sm:grid-cols-3">
+      {/* ================= 2. COMPACT 3-MODE ARMING SELECTOR ================= */}
+      <div className="grid grid-cols-3 gap-2 sm:gap-3">
         <button
           type="button"
           onClick={() => handleSetArmedMode('away')}
-          className={`flex flex-col items-start rounded-2xl border p-5 text-left transition-all cursor-pointer ${
+          className={`flex items-center justify-center gap-2 rounded-2xl border py-2.5 sm:py-3 px-3 transition-all cursor-pointer ${
             armedMode === 'away'
-              ? 'border-red-500 bg-red-500/20 shadow-lg shadow-red-500/20'
-              : 'border-slate-800 bg-slate-950/60 hover:border-slate-700'
+              ? 'border-red-500 bg-red-500/20 text-white shadow-lg shadow-red-500/20 ring-1 ring-red-400'
+              : 'border-slate-800 bg-slate-950/60 text-slate-300 hover:border-slate-700 hover:bg-slate-900/60'
           }`}
         >
-          <div className="flex items-center justify-between w-full">
-            <ShieldAlert className={`h-6 w-6 ${armedMode === 'away' ? 'text-red-400' : 'text-slate-400'}`} />
-            {armedMode === 'away' && <span className="h-2.5 w-2.5 rounded-full bg-red-400 animate-ping" />}
+          <ShieldAlert className={`h-4 w-4 sm:h-5 sm:w-5 shrink-0 ${armedMode === 'away' ? 'text-red-400' : 'text-slate-400'}`} />
+          <div className="text-left">
+            <span className="block text-xs sm:text-sm font-black uppercase tracking-wider">Armed Away</span>
+            <span className="text-[10px] text-slate-400 hidden sm:block">Full Protection</span>
           </div>
-          <span className="text-base font-bold text-white mt-3">ARMED AWAY</span>
-          <span className="text-xs text-slate-400 mt-1">Full protection. All interior PIR & perimeter sensors trigger instant siren & GSM phone call.</span>
         </button>
 
         <button
           type="button"
           onClick={() => handleSetArmedMode('stay')}
-          className={`flex flex-col items-start rounded-2xl border p-5 text-left transition-all cursor-pointer ${
+          className={`flex items-center justify-center gap-2 rounded-2xl border py-2.5 sm:py-3 px-3 transition-all cursor-pointer ${
             armedMode === 'stay'
-              ? 'border-amber-500 bg-amber-500/20 shadow-lg shadow-amber-500/20'
-              : 'border-slate-800 bg-slate-950/60 hover:border-slate-700'
+              ? 'border-amber-500 bg-amber-500/20 text-white shadow-lg shadow-amber-500/20 ring-1 ring-amber-400'
+              : 'border-slate-800 bg-slate-950/60 text-slate-300 hover:border-slate-700 hover:bg-slate-900/60'
           }`}
         >
-          <div className="flex items-center justify-between w-full">
-            <ShieldCheck className={`h-6 w-6 ${armedMode === 'stay' ? 'text-amber-400' : 'text-slate-400'}`} />
-            {armedMode === 'stay' && <span className="h-2.5 w-2.5 rounded-full bg-amber-400 animate-ping" />}
+          <ShieldCheck className={`h-4 w-4 sm:h-5 sm:w-5 shrink-0 ${armedMode === 'stay' ? 'text-amber-400' : 'text-slate-400'}`} />
+          <div className="text-left">
+            <span className="block text-xs sm:text-sm font-black uppercase tracking-wider">Armed Stay</span>
+            <span className="text-[10px] text-slate-400 hidden sm:block">Perimeter Only</span>
           </div>
-          <span className="text-base font-bold text-white mt-3">ARMED STAY</span>
-          <span className="text-xs text-slate-400 mt-1">Perimeter doors & windows armed. Interior motion permits normal walking.</span>
         </button>
 
         <button
           type="button"
           onClick={() => handleSetArmedMode('disarmed')}
-          className={`flex flex-col items-start rounded-2xl border p-5 text-left transition-all cursor-pointer ${
+          className={`flex items-center justify-center gap-2 rounded-2xl border py-2.5 sm:py-3 px-3 transition-all cursor-pointer ${
             armedMode === 'disarmed'
-              ? 'border-emerald-500 bg-emerald-500/20 shadow-lg shadow-emerald-500/20'
-              : 'border-slate-800 bg-slate-950/60 hover:border-slate-700'
+              ? 'border-emerald-500 bg-emerald-500/20 text-white shadow-lg shadow-emerald-500/20 ring-1 ring-emerald-400'
+              : 'border-slate-800 bg-slate-950/60 text-slate-300 hover:border-slate-700 hover:bg-slate-900/60'
           }`}
         >
-          <div className="flex items-center justify-between w-full">
-            <Unlock className={`h-6 w-6 ${armedMode === 'disarmed' ? 'text-emerald-400' : 'text-slate-400'}`} />
-            {armedMode === 'disarmed' && <span className="h-2.5 w-2.5 rounded-full bg-emerald-400" />}
+          <Unlock className={`h-4 w-4 sm:h-5 sm:w-5 shrink-0 ${armedMode === 'disarmed' ? 'text-emerald-400' : 'text-slate-400'}`} />
+          <div className="text-left">
+            <span className="block text-xs sm:text-sm font-black uppercase tracking-wider">Disarmed</span>
+            <span className="text-[10px] text-slate-400 hidden sm:block">System Standby</span>
           </div>
-          <span className="text-base font-bold text-white mt-3">DISARMED</span>
-          <span className="text-xs text-slate-400 mt-1">Security relaxed. Motion is logged for awareness without audible alarms or auto-dialing.</span>
         </button>
       </div>
 
-      {/* ================= GSM CELLULAR SUB-SYSTEM & EMERGENCY DISPATCH ================= */}
-      <section className="rounded-3xl border border-amber-500/30 bg-gradient-to-r from-slate-950 via-slate-900/90 to-slate-950 p-5 sm:p-6 shadow-[0_0_35px_rgba(245,158,11,0.08)] space-y-5">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-800 pb-4">
+      {/* ================= 3. CLIENT-FIRST EMERGENCY DISPATCH LINE ================= */}
+      <section className="rounded-2xl border border-amber-500/30 bg-gradient-to-r from-slate-950 via-slate-900/80 to-slate-950 p-3 sm:p-3.5 shadow-sm">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
           <div className="flex items-center gap-3">
-            <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-amber-500/10 border border-amber-500/30 text-amber-400 shadow-[0_0_15px_rgba(245,158,11,0.2)]">
-              <Signal className="h-6 w-6" />
+            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-amber-500/15 border border-amber-500/30 text-amber-400 shrink-0">
+              <Phone className="h-4 w-4" />
             </div>
             <div>
-              <div className="flex items-center gap-2">
-                <h3 className="text-base sm:text-lg font-black text-white uppercase tracking-wider">
-                  GSM Cellular Subsystem (SIM800L)
-                </h3>
-                <span className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider ${
-                  gsmSimStatus === 'READY'
-                    ? 'bg-emerald-500/10 text-emerald-300 border border-emerald-500/30'
-                    : 'bg-red-500/10 text-red-300 border border-red-500/30'
-                }`}>
-                  <span className={`h-1.5 w-1.5 rounded-full ${gsmSimStatus === 'READY' ? 'bg-emerald-400 animate-pulse' : 'bg-red-400'}`} />
-                  {gsmSimStatus === 'READY' ? 'SIM Ready' : gsmSimStatus}
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-xs font-bold uppercase tracking-wider text-amber-300">
+                  Emergency Contact:
+                </span>
+                <span className="font-bold text-white text-xs">
+                  {contacts[0]?.name || 'Primary Security Line'}
+                </span>
+                <span className="font-mono text-xs font-bold text-cyan-300 bg-slate-900 px-2 py-0.5 rounded border border-cyan-500/30">
+                  {primaryPhone || 'No Phone Set'}
+                </span>
+                <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/15 px-2 py-0.5 text-[10px] font-bold text-emerald-300 border border-emerald-500/30">
+                  <PhoneCall className="h-2.5 w-2.5" /> Auto-Dial
+                </span>
+                <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/15 px-2 py-0.5 text-[10px] font-bold text-amber-300 border border-amber-500/30">
+                  <MessageSquare className="h-2.5 w-2.5" /> SMS Alert
                 </span>
               </div>
-              <p className="text-xs text-slate-300 mt-0.5">
-                Hardware UART2 (GPIO 16 RX / GPIO 17 TX) · Direct SMS Dispatch & Emergency Voice Auto-Dialing
+              <p className="text-[11px] text-slate-400 mt-0.5">
+                Auto-dialed on alarm. Cellular signal: <strong className="text-slate-300 font-mono">{gsmNetworkOperator} ({signalQualityLabel})</strong>.
               </p>
             </div>
           </div>
 
-          {/* Real-time Cellular Signal Quality Meter */}
-          <div className="flex items-center gap-3 rounded-2xl border border-slate-800 bg-slate-950/80 px-4 py-2 self-start sm:self-auto">
-            <div className="text-right">
-              <span className="block text-[10px] font-bold uppercase tracking-wider text-slate-400">
-                Cellular Signal
-              </span>
-              <span className="text-xs font-mono font-bold text-amber-300">
-                {gsmNetworkOperator} · {gsmSignalCsq}/31 ({signalQualityLabel})
-              </span>
-              <span className="block text-[10px] text-slate-500 font-mono">
-                {rssiDbm} dBm
-              </span>
-            </div>
+          {/* Quick Actions */}
+          <div className="flex flex-wrap items-center gap-1.5 shrink-0">
+            <button
+              type="button"
+              onClick={() => setShowContactModal(true)}
+              className="inline-flex items-center gap-1.5 rounded-xl border border-slate-700 bg-slate-800/90 px-3 py-1.5 text-xs font-bold text-slate-200 hover:border-cyan-400 hover:text-cyan-300 transition-all cursor-pointer"
+            >
+              <Settings className="h-3.5 w-3.5 text-cyan-400" />
+              <span>Edit Contact</span>
+            </button>
 
-            {/* 5-bar vertical signal meter */}
-            <div className="flex items-end gap-1 h-7 px-1">
-              {[1, 2, 3, 4, 5].map((bar) => {
-                const active = gsmSignalCsq >= (bar === 1 ? 4 : bar === 2 ? 10 : bar === 3 ? 16 : bar === 4 ? 22 : 27);
-                const barColor =
-                  gsmSignalCsq < 10 ? 'bg-red-500' :
-                  gsmSignalCsq < 16 ? 'bg-amber-400' :
-                  gsmSignalCsq < 22 ? 'bg-cyan-400' : 'bg-emerald-400';
-                return (
-                  <div
-                    key={bar}
-                    style={{ height: `${bar * 20}%` }}
-                    className={`w-1.5 rounded-sm transition-all ${
-                      active ? `${barColor} shadow-[0_0_6px_rgba(245,158,11,0.6)]` : 'bg-slate-800'
-                    }`}
-                  />
-                );
-              })}
-            </div>
-          </div>
-        </div>
+            <button
+              type="button"
+              onClick={handleTestCall}
+              disabled={testCallBusy || !primaryPhone}
+              className="inline-flex items-center gap-1.5 rounded-xl border border-emerald-500/40 bg-emerald-500/10 px-3 py-1.5 text-xs font-bold text-emerald-300 hover:bg-emerald-500/20 transition-all cursor-pointer disabled:opacity-50"
+            >
+              <PhoneCall className="h-3.5 w-3.5" />
+              <span>{testCallBusy ? 'Calling...' : 'Test Call'}</span>
+            </button>
 
-        {/* Emergency Contacts Directory & Automated Dispatch Rules */}
-        <form onSubmit={handleSaveContacts} className="space-y-5">
-          {/* Section Header with Add Contact & Dirty State */}
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-800 pb-3">
-            <div>
-              <div className="flex items-center gap-2">
-                <h4 className="text-sm font-bold text-white uppercase tracking-wider flex items-center gap-2">
-                  <Phone className="h-4 w-4 text-cyan-400" />
-                  Emergency Contacts Directory
-                </h4>
-                <span className="rounded-full bg-slate-800 px-2 py-0.5 text-[10px] font-mono text-cyan-300">
-                  {contacts.length} {contacts.length === 1 ? 'Contact' : 'Contacts'}
-                </span>
-              </div>
-              <p className="text-xs text-slate-400 mt-0.5">
-                Manage all verified contacts. The designated Primary contact is instantly dialed and texted by the ESP32 SIM800L on intrusion.
-              </p>
-            </div>
-
-            <div className="flex items-center gap-2">
-              {contactsDirty && (
-                <div className="flex items-center gap-1.5">
-                  <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[10px] font-bold uppercase tracking-wider bg-amber-500/15 text-amber-300 border border-amber-500/30 animate-pulse">
-                    <Sparkles className="h-3 w-3 text-amber-400" /> Unsaved Changes
-                  </span>
-                  <button
-                    type="button"
-                    onClick={handleDiscardContacts}
-                    title="Discard changes and revert to database"
-                    className="inline-flex items-center gap-1 rounded-lg border border-slate-700 bg-slate-800/80 px-2.5 py-1 text-[10px] font-bold text-slate-300 hover:text-white hover:bg-slate-700 transition-all cursor-pointer"
-                  >
-                    <RotateCcw className="h-3 w-3" /> Revert
-                  </button>
-                </div>
-              )}
-
-              <button
-                type="button"
-                onClick={handleAddContact}
-                className="inline-flex items-center gap-1.5 rounded-xl border border-cyan-500/40 bg-cyan-500/15 px-3 py-1.5 text-xs font-bold text-cyan-300 hover:bg-cyan-500/25 transition-all cursor-pointer"
-              >
-                <UserPlus className="h-3.5 w-3.5" />
-                Add Contact
-              </button>
-            </div>
-          </div>
-
-          {/* Dynamic Contact Cards List */}
-          <div className="space-y-3">
-            {contacts.map((contact, index) => {
-              const isPrimary = contact.isPrimary;
-              return (
-                <div
-                  key={contact.id}
-                  className={`relative rounded-2xl border p-4 transition-all ${
-                    isPrimary
-                      ? 'border-amber-500/50 bg-gradient-to-r from-amber-950/25 via-slate-900/70 to-slate-950 shadow-lg shadow-amber-500/5'
-                      : 'border-slate-800 bg-slate-950/60 hover:border-slate-700'
-                  }`}
-                >
-                  <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
-                    <div className="flex items-center gap-2">
-                      <span className={`inline-flex items-center justify-center h-5 w-5 rounded-full text-[11px] font-bold ${
-                        isPrimary ? 'bg-amber-500 text-black' : 'bg-slate-800 text-slate-400'
-                      }`}>
-                        {index + 1}
-                      </span>
-                      <span className="text-xs font-bold text-white uppercase tracking-wider flex items-center gap-1.5">
-                        {isPrimary ? (
-                          <>
-                            <Star className="h-3.5 w-3.5 text-amber-400 fill-amber-400" />
-                            Primary Emergency Contact
-                          </>
-                        ) : (
-                          `Emergency Contact #${index + 1}`
-                        )}
-                      </span>
-                    </div>
-
-                    <div className="flex items-center gap-2">
-                      {isPrimary ? (
-                        <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider bg-amber-500/20 text-amber-300 border border-amber-500/40">
-                          Active Primary (Auto-Dial + SMS)
-                        </span>
-                      ) : (
-                        <button
-                          type="button"
-                          onClick={() => handleSetPrimary(contact.id)}
-                          className="inline-flex items-center gap-1 rounded-lg border border-slate-700 bg-slate-800/80 px-2.5 py-1 text-[10px] font-bold text-slate-300 hover:text-amber-300 hover:border-amber-500/40 hover:bg-amber-500/10 transition-all cursor-pointer"
-                        >
-                          <Star className="h-3 w-3" /> Set as Primary
-                        </button>
-                      )}
-
-                      {contacts.length > 1 && (
-                        <button
-                          type="button"
-                          onClick={() => handleRemoveContact(contact.id)}
-                          title="Remove this emergency contact"
-                          className="rounded-lg p-1.5 text-slate-400 hover:text-red-400 hover:bg-red-500/10 border border-transparent hover:border-red-500/30 transition-all cursor-pointer"
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </button>
-                      )}
-                    </div>
-                  </div>
-
-                  <div className="grid gap-3 sm:grid-cols-2">
-                    <div>
-                      <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1">
-                        Contact Name / Relationship
-                      </label>
-                      <input
-                        type="text"
-                        value={contact.name}
-                        onChange={e => handleUpdateContact(contact.id, { name: e.target.value })}
-                        placeholder="e.g. Home Owner, Spouse, Neighborhood Security"
-                        className="w-full rounded-xl border border-slate-800 bg-slate-900/90 px-3 py-2 text-xs text-white focus:border-cyan-400 focus:outline-none"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1">
-                        Phone Number {isPrimary && <span className="text-amber-400">*</span>}
-                      </label>
-                      <div className="relative">
-                        <Phone className={`absolute left-3 top-2.5 h-3.5 w-3.5 ${isPrimary ? 'text-amber-400' : 'text-slate-400'}`} />
-                        <input
-                          type="tel"
-                          value={contact.phone}
-                          onChange={e => handleUpdateContact(contact.id, { phone: e.target.value })}
-                          required={isPrimary}
-                          placeholder="e.g. 0552117787 or +233256905290"
-                          className={`w-full rounded-xl border bg-slate-900/90 pl-9 pr-3 py-2 text-xs font-mono text-white focus:outline-none ${
-                            isPrimary ? 'border-amber-500/40 focus:border-amber-400' : 'border-slate-800 focus:border-cyan-400'
-                          }`}
-                        />
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="mt-3 pt-2.5 border-t border-slate-800/80 flex flex-wrap items-center justify-between gap-3 text-xs text-slate-400">
-                    <div className="flex items-center gap-4">
-                      <label className="inline-flex items-center gap-1.5 cursor-pointer">
-                        <input
-                          type="checkbox"
-                          checked={contact.enableCall}
-                          onChange={e => handleUpdateContact(contact.id, { enableCall: e.target.checked })}
-                          className="rounded border-slate-700 text-amber-500 focus:ring-0"
-                        />
-                        <span className="flex items-center gap-1 text-slate-300 text-xs">
-                          <PhoneCall className="h-3.5 w-3.5 text-emerald-400" /> Voice Call Alert
-                        </span>
-                      </label>
-
-                      <label className="inline-flex items-center gap-1.5 cursor-pointer">
-                        <input
-                          type="checkbox"
-                          checked={contact.enableSms}
-                          onChange={e => handleUpdateContact(contact.id, { enableSms: e.target.checked })}
-                          className="rounded border-slate-700 text-amber-500 focus:ring-0"
-                        />
-                        <span className="flex items-center gap-1 text-slate-300 text-xs">
-                          <MessageSquare className="h-3.5 w-3.5 text-amber-400" /> SMS Text Alert
-                        </span>
-                      </label>
-                    </div>
-
-                    {isPrimary && (
-                      <span className="text-[10px] text-amber-300/80 font-mono">
-                        ⚡ Direct dial target for GSM SIM800L hardware
-                      </span>
-                    )}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-
-          {/* Dispatch Automation Toggles */}
-          <div className="rounded-2xl border border-slate-800 bg-slate-950/60 p-4 space-y-3">
-            <span className="block text-[11px] font-bold uppercase tracking-wider text-slate-400">
-              Cellular Dispatch Automations
-            </span>
-
-            <div className="grid gap-3 sm:grid-cols-3 text-xs">
-              <label className="flex items-center gap-2.5 p-3 rounded-xl border border-slate-800 bg-slate-900/60 cursor-pointer hover:border-slate-700">
-                <input
-                  type="checkbox"
-                  checked={smsOnAlarm}
-                  onChange={e => setSmsOnAlarm(e.target.checked)}
-                  className="rounded border-slate-700 text-amber-500 focus:ring-0"
-                />
-                <div>
-                  <span className="font-bold text-white flex items-center gap-1.5">
-                    <MessageSquare className="h-3.5 w-3.5 text-amber-400" /> SMS on Intrusion
-                  </span>
-                  <p className="text-[10px] text-slate-400 mt-0.5">Sends zone name and alert text</p>
-                </div>
-              </label>
-
-              <label className="flex items-center gap-2.5 p-3 rounded-xl border border-slate-800 bg-slate-900/60 cursor-pointer hover:border-slate-700">
-                <input
-                  type="checkbox"
-                  checked={callOnAlarm}
-                  onChange={e => setCallOnAlarm(e.target.checked)}
-                  className="rounded border-slate-700 text-amber-500 focus:ring-0"
-                />
-                <div>
-                  <span className="font-bold text-white flex items-center gap-1.5">
-                    <PhoneCall className="h-3.5 w-3.5 text-emerald-400" /> Auto-Dial Phone Call
-                  </span>
-                  <p className="text-[10px] text-slate-400 mt-0.5">Rings phone for 25s via ATD</p>
-                </div>
-              </label>
-
-              <label className="flex items-center gap-2.5 p-3 rounded-xl border border-slate-800 bg-slate-900/60 cursor-pointer hover:border-slate-700">
-                <input
-                  type="checkbox"
-                  checked={smsOnArmDisarm}
-                  onChange={e => setSmsOnArmDisarm(e.target.checked)}
-                  className="rounded border-slate-700 text-amber-500 focus:ring-0"
-                />
-                <div>
-                  <span className="font-bold text-white flex items-center gap-1.5">
-                    <Shield className="h-3.5 w-3.5 text-cyan-400" /> SMS on Arm / Disarm
-                  </span>
-                  <p className="text-[10px] text-slate-400 mt-0.5">Notifies when status changes</p>
-                </div>
-              </label>
-            </div>
-          </div>
-
-          {/* Action Row */}
-          <div className="flex flex-wrap items-center justify-between gap-3 pt-1">
-            <div className="flex flex-wrap items-center gap-2">
-              <button
-                type="submit"
-                disabled={savingContacts}
-                className={`inline-flex items-center gap-2 rounded-xl px-5 py-2.5 text-xs font-bold uppercase tracking-wider text-black shadow-lg transition-all cursor-pointer disabled:opacity-50 ${
-                  contactsDirty
-                    ? 'bg-gradient-to-r from-amber-400 to-orange-400 shadow-amber-500/30 ring-2 ring-amber-400/50 animate-pulse'
-                    : 'bg-gradient-to-r from-amber-500 to-orange-500 shadow-amber-500/20 hover:opacity-90'
-                }`}
-              >
-                {savingContacts ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <CheckCheck className="h-4 w-4" />}
-                {savingContacts ? 'Saving Contacts...' : 'Save Emergency Contacts'}
-              </button>
-
-              <button
-                type="button"
-                onClick={handleTestSms}
-                disabled={testSmsBusy || !primaryPhone}
-                className="inline-flex items-center gap-1.5 rounded-xl border border-cyan-500/40 bg-cyan-500/10 px-3.5 py-2.5 text-xs font-bold text-cyan-300 hover:bg-cyan-500/20 transition-all cursor-pointer disabled:opacity-50"
-              >
-                <Send className="h-3.5 w-3.5" />
-                {testSmsBusy ? 'Sending Test SMS...' : 'Send Test SMS'}
-              </button>
-
-              <button
-                type="button"
-                onClick={handleTestCall}
-                disabled={testCallBusy || !primaryPhone}
-                className="inline-flex items-center gap-1.5 rounded-xl border border-emerald-500/40 bg-emerald-500/10 px-3.5 py-2.5 text-xs font-bold text-emerald-300 hover:bg-emerald-500/20 transition-all cursor-pointer disabled:opacity-50"
-              >
-                <PhoneCall className="h-3.5 w-3.5" />
-                {testCallBusy ? 'Dialing Alert Ring...' : 'Place Test Alert Call'}
-              </button>
-            </div>
+            <button
+              type="button"
+              onClick={handleTestSms}
+              disabled={testSmsBusy || !primaryPhone}
+              className="inline-flex items-center gap-1.5 rounded-xl border border-cyan-500/40 bg-cyan-500/10 px-3 py-1.5 text-xs font-bold text-cyan-300 hover:bg-cyan-500/20 transition-all cursor-pointer disabled:opacity-50"
+            >
+              <Send className="h-3.5 w-3.5" />
+              <span>{testSmsBusy ? 'Sending...' : 'Test SMS'}</span>
+            </button>
 
             <button
               type="button"
               onClick={() => setShowSmsCheatSheet(!showSmsCheatSheet)}
-              className="inline-flex items-center gap-1.5 rounded-xl border border-purple-500/40 bg-purple-500/10 px-3.5 py-2 text-xs font-bold text-purple-300 hover:bg-purple-500/20 transition-all cursor-pointer"
+              className="inline-flex items-center gap-1 rounded-xl border border-purple-500/40 bg-purple-500/10 px-2.5 py-1.5 text-xs font-medium text-purple-300 hover:bg-purple-500/20 transition-all cursor-pointer"
+              title="View two-way remote SMS commands"
             >
               <MessageSquare className="h-3.5 w-3.5" />
-              {showSmsCheatSheet ? 'Hide SMS Remote Commands' : 'Two-Way SMS Remote Commands'}
+              <span className="hidden lg:inline">SMS Commands</span>
             </button>
           </div>
-
-          {contactsNotice && (
-            <p className="text-xs p-3 rounded-xl border border-emerald-500/30 bg-emerald-500/10 text-emerald-300 animate-fadeIn">
-              {contactsNotice}
-            </p>
-          )}
-        </form>
-
-        {/* Two-Way Remote SMS Control Cheat-Sheet */}
-        {showSmsCheatSheet && (
-          <div className="rounded-2xl border border-purple-500/30 bg-purple-950/20 p-5 space-y-3 animate-fadeIn">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-purple-500/20 pb-3">
-              <div>
-                <h4 className="text-xs font-bold text-purple-300 uppercase tracking-wider flex items-center gap-2">
-                  <MessageSquare className="h-4 w-4 text-purple-400" />
-                  Two-Way Remote SMS Commands (Direct Microcontroller Control)
-                </h4>
-                <p className="text-[11px] text-slate-300 mt-0.5">
-                  When you are away without internet or when local Wi-Fi goes down, send these SMS commands directly to the SIM card in your hardware:
-                </p>
-              </div>
-              <span className="text-[10px] font-mono text-purple-300 bg-purple-500/10 px-2.5 py-1 rounded border border-purple-500/30 self-start sm:self-auto">
-                AT+CNMI Auto-Execution Active
-              </span>
-            </div>
-
-            <div className="grid gap-2 sm:grid-cols-3 text-xs font-mono">
-              <div className="p-3 rounded-xl border border-slate-800 bg-slate-950/90">
-                <div className="flex items-center justify-between">
-                  <span className="text-cyan-400 font-bold">ARM AWAY</span>
-                  <span className="text-[10px] text-slate-500">or ARM</span>
-                </div>
-                <p className="text-[11px] text-slate-400 font-sans mt-1">Arms PIR & perimeter zones with instant sirens</p>
-              </div>
-
-              <div className="p-3 rounded-xl border border-slate-800 bg-slate-950/90">
-                <div className="flex items-center justify-between">
-                  <span className="text-amber-400 font-bold">ARM STAY</span>
-                  <span className="text-[10px] text-slate-500">Perimeter</span>
-                </div>
-                <p className="text-[11px] text-slate-400 font-sans mt-1">Arms exterior doors while permitting interior walking</p>
-              </div>
-
-              <div className="p-3 rounded-xl border border-slate-800 bg-slate-950/90">
-                <div className="flex items-center justify-between">
-                  <span className="text-emerald-400 font-bold">DISARM</span>
-                  <span className="text-[10px] text-slate-500">Safety</span>
-                </div>
-                <p className="text-[11px] text-slate-400 font-sans mt-1">Disarms system and silences sounding sirens</p>
-              </div>
-
-              <div className="p-3 rounded-xl border border-slate-800 bg-slate-950/90">
-                <div className="flex items-center justify-between">
-                  <span className="text-purple-400 font-bold">STATUS</span>
-                  <span className="text-[10px] text-slate-500">Diagnostics</span>
-                </div>
-                <p className="text-[11px] text-slate-400 font-sans mt-1">Returns armed status, motion state & cellular CSQ via SMS</p>
-              </div>
-
-              <div className="p-3 rounded-xl border border-slate-800 bg-slate-950/90">
-                <div className="flex items-center justify-between">
-                  <span className="text-red-400 font-bold">PANIC</span>
-                  <span className="text-[10px] text-slate-500">or SIREN ON</span>
-                </div>
-                <p className="text-[11px] text-slate-400 font-sans mt-1">Manually triggers physical 5V siren relay & buzzer</p>
-              </div>
-
-              <div className="p-3 rounded-xl border border-slate-800 bg-slate-950/90">
-                <div className="flex items-center justify-between">
-                  <span className="text-slate-300 font-bold">SILENCE</span>
-                  <span className="text-[10px] text-slate-500">or SIREN OFF</span>
-                </div>
-                <p className="text-[11px] text-slate-400 font-sans mt-1">Immediately cuts off siren relay without full disarm</p>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* GSM Hardware Connection & Power Diagram */}
-        <div className="rounded-2xl border border-slate-800/80 bg-slate-950/60 p-4 text-[11px] text-slate-400 flex flex-wrap items-center justify-between gap-3">
-          <div className="flex flex-wrap items-center gap-4">
-            <span>GSM Module: <strong className="text-white">SIM800L / SIM900</strong></span>
-            <span>ESP32 RX2: <strong className="text-amber-400">GPIO 16</strong> (&larr; SIM800L TXD)</span>
-            <span>ESP32 TX2: <strong className="text-amber-400">GPIO 17</strong> (&rarr; SIM800L RXD)</span>
-            <span>Power: <strong className="text-white">3.7V–4.2V (2A Peak)</strong> + 1000&mu;F Low-ESR Cap</span>
-          </div>
-          <div className="flex items-center gap-2 text-slate-500 font-mono text-[10px]">
-            <span>Call Status: <strong className="text-cyan-400">{gsmCallState}</strong></span>
-            <span>·</span>
-            <span>SMS Status: <strong className="text-emerald-400">{gsmLastSmsStatus}</strong></span>
-          </div>
         </div>
+
+        {contactsNotice && (
+          <p className="mt-2 text-xs p-2 rounded-xl border border-emerald-500/30 bg-emerald-500/10 text-emerald-300 animate-fadeIn">
+            {contactsNotice}
+          </p>
+        )}
       </section>
 
-      {/* Main Status & Zones Grid */}
-      <div className="grid gap-6 lg:grid-cols-3">
-        {/* Radar & Motion Visualizer (Left 1 col) */}
-        <div className="rounded-2xl border border-slate-800 bg-slate-950/60 p-6 flex flex-col items-center justify-center text-center relative overflow-hidden">
-          <div className="relative flex h-48 w-48 items-center justify-center">
-            {/* Animated Radar Rings */}
-            <span className="pointer-events-none absolute h-40 w-40 rounded-full border border-cyan-500/30 gkb-radar-ring" />
-            <span className="pointer-events-none absolute h-28 w-28 rounded-full border border-cyan-500/40" />
-            <span className="pointer-events-none absolute h-16 w-16 rounded-full border border-cyan-500/50" />
+      {/* Two-Way Remote SMS Control Cheat-Sheet */}
+      {showSmsCheatSheet && (
+        <div className="rounded-2xl border border-purple-500/30 bg-purple-950/20 p-3.5 space-y-2.5 animate-fadeIn">
+          <div className="flex items-center justify-between border-b border-purple-500/20 pb-2">
+            <h4 className="text-xs font-bold text-purple-300 uppercase tracking-wider flex items-center gap-2">
+              <MessageSquare className="h-4 w-4 text-purple-400" />
+              Two-Way Remote SMS Commands (Direct Phone-to-Device Control)
+            </h4>
+            <button
+              type="button"
+              onClick={() => setShowSmsCheatSheet(false)}
+              className="text-slate-400 hover:text-white"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </div>
+          <div className="grid gap-2 sm:grid-cols-3 text-xs font-mono">
+            <div className="p-2 rounded-xl border border-slate-800 bg-slate-950/90">
+              <span className="text-cyan-400 font-bold">ARM AWAY</span>
+              <p className="text-[11px] text-slate-400 font-sans mt-0.5">Arms PIR & perimeter zones with instant sirens</p>
+            </div>
+            <div className="p-2 rounded-xl border border-slate-800 bg-slate-950/90">
+              <span className="text-amber-400 font-bold">ARM STAY</span>
+              <p className="text-[11px] text-slate-400 font-sans mt-0.5">Arms perimeter doors while permitting interior walking</p>
+            </div>
+            <div className="p-2 rounded-xl border border-slate-800 bg-slate-950/90">
+              <span className="text-emerald-400 font-bold">DISARM</span>
+              <p className="text-[11px] text-slate-400 font-sans mt-0.5">Disarms system and silences sounding sirens</p>
+            </div>
+          </div>
+        </div>
+      )}
 
-            <div className={`flex h-24 w-24 items-center justify-center rounded-full transition-all ${
+      {/* ================= 4. MAIN STATUS & ZONES GRID ================= */}
+      <div className="grid gap-3 lg:grid-cols-3 items-start">
+        {/* Radar & Motion Visualizer (Left 1 col) */}
+        <div className="rounded-2xl border border-slate-800 bg-slate-950/60 p-4 sm:p-5 flex flex-col items-center justify-center text-center relative overflow-hidden">
+          <div className="relative flex h-36 w-36 items-center justify-center">
+            <span className="pointer-events-none absolute h-32 w-32 rounded-full border border-cyan-500/30 gkb-radar-ring" />
+            <span className="pointer-events-none absolute h-20 w-20 rounded-full border border-cyan-500/40" />
+            <span className="pointer-events-none absolute h-12 w-12 rounded-full border border-cyan-500/50" />
+
+            <div className={`flex h-16 w-16 items-center justify-center rounded-full transition-all ${
               motionDetected
                 ? 'bg-red-600 text-white shadow-xl shadow-red-600/70 scale-110'
                 : 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/40'
             }`}>
-              <Eye className={`h-12 w-12 ${motionDetected ? 'animate-bounce' : ''}`} />
+              <Eye className={`h-8 w-8 ${motionDetected ? 'animate-bounce' : ''}`} />
             </div>
           </div>
 
-          <p className="text-sm font-bold text-white mt-2">
-            {motionDetected ? '🚨 Motion Detected (GPIO 15)' : '🍃 No Motion Detected'}
+          <p className="text-xs sm:text-sm font-bold text-white mt-1">
+            {motionDetected ? '🚨 Motion Sensed in Home' : '🍃 All Areas Quiet'}
           </p>
-          <p className="text-xs text-slate-400 mt-1">
-            HC-SR501 Infrared Sensor active · Sensitivity: {pirSensitivity.toUpperCase()}
+          <p className="text-[11px] text-slate-400 mt-0.5">
+            PIR Infrared Motion Surveillance Active
           </p>
 
-          <div className="mt-5 flex gap-2 w-full">
-            <button
-              type="button"
-              onClick={handleTestMotionTrip}
-              className="flex-1 rounded-xl border border-cyan-500/40 bg-cyan-500/10 py-2.5 text-xs font-bold text-cyan-300 hover:bg-cyan-500/20 transition-all cursor-pointer"
-            >
-              Test Motion Pulse
-            </button>
+          <div className="mt-3.5 flex gap-2 w-full">
             <button
               type="button"
               onClick={handlePanicButton}
-              className="flex-1 rounded-xl border border-red-500/50 bg-red-600/20 py-2.5 text-xs font-bold text-red-300 hover:bg-red-600/40 transition-all cursor-pointer flex items-center justify-center gap-1.5"
+              className="flex-1 rounded-xl bg-gradient-to-r from-red-600 to-rose-600 py-2.5 text-xs font-black uppercase tracking-wider text-white hover:brightness-110 transition-all cursor-pointer shadow-md shadow-red-600/30 flex items-center justify-center gap-1.5"
             >
-              <AlertOctagon className="h-4 w-4" /> Panic Button
+              <AlertOctagon className="h-4 w-4" /> Panic Alarm
+            </button>
+            <button
+              type="button"
+              onClick={handleTestMotionTrip}
+              className="rounded-xl border border-slate-700 bg-slate-800/80 px-3 py-2.5 text-xs font-semibold text-slate-300 hover:text-cyan-300 hover:border-cyan-500/40 transition-all cursor-pointer"
+              title="Simulate a motion trigger"
+            >
+              Test Sensor
             </button>
           </div>
         </div>
 
         {/* Multi-Zone Security Layout (Right 2 cols) */}
-        <div className="lg:col-span-2 space-y-4">
-          <div className="rounded-2xl border border-slate-800 bg-slate-950/60 p-5 space-y-4">
+        <div className="lg:col-span-2 space-y-3">
+          <div className="rounded-2xl border border-slate-800 bg-slate-950/60 p-3.5 sm:p-4 space-y-2.5">
             <div className="flex items-center justify-between">
-              <h3 className="text-sm font-bold text-white uppercase tracking-wider flex items-center gap-2">
-                <Radio className="h-4 w-4 text-cyan-400" /> Monitored Security Zones
+              <h3 className="text-xs font-bold text-white uppercase tracking-wider flex items-center gap-2">
+                <Radio className="h-3.5 w-3.5 text-cyan-400" /> Monitored Security Zones
               </h3>
-              <span className="text-xs text-slate-400">4 Monitored Channels</span>
+              <span className="text-[10px] text-slate-400 font-mono">4 Zones Online</span>
             </div>
 
-            <div className="grid gap-3 sm:grid-cols-2">
+            <div className="grid gap-2 sm:grid-cols-2">
               {zones.map(z => (
                 <div
                   key={z.id}
-                  className={`rounded-xl border p-4 transition-all ${
+                  className={`rounded-xl border p-2.5 sm:p-3 transition-all ${
                     z.status === 'triggered'
                       ? 'border-red-500/60 bg-red-950/40 shadow-md shadow-red-900/30'
                       : 'border-slate-800/80 bg-slate-900/60'
                   }`}
                 >
                   <div className="flex items-center justify-between">
-                    <span className="text-xs font-bold text-white flex items-center gap-2">
+                    <span className="text-xs font-bold text-white flex items-center gap-1.5">
                       <span className={`h-2 w-2 rounded-full ${z.status === 'triggered' ? 'bg-red-500 animate-ping' : 'bg-emerald-400'}`} />
                       {z.name}
                     </span>
-                    <span className="text-[10px] font-mono text-cyan-300 bg-slate-950 px-2 py-0.5 rounded border border-cyan-500/20">
-                      {z.pin}
-                    </span>
-                  </div>
-                  <p className="text-[11px] text-slate-400 mt-1">{z.location}</p>
-                  <div className="mt-3 flex items-center justify-between text-[11px]">
-                    <span className={z.status === 'triggered' ? 'text-red-300 font-bold' : 'text-emerald-400'}>
+                    <span className={z.status === 'triggered' ? 'text-red-300 text-[10px] font-bold' : 'text-emerald-400 text-[10px] font-semibold'}>
                       {z.status === 'triggered' ? '🔴 Tripped' : '🟢 Secure'}
                     </span>
-                    <span className="text-slate-500 text-[10px]">Last: {z.lastTripped}</span>
                   </div>
+                  <p className="text-[11px] text-slate-400 mt-0.5">{z.location}</p>
                 </div>
               ))}
             </div>
           </div>
 
           {/* Real-time Intrusion Logs */}
-          <div className="rounded-2xl border border-slate-800 bg-slate-950/60 p-5 space-y-3">
-            <h3 className="text-sm font-bold text-white uppercase tracking-wider flex items-center gap-2">
-              <Activity className="h-4 w-4 text-purple-400" /> Security Audit Log & Cellular Dispatch
+          <div className="rounded-2xl border border-slate-800 bg-slate-950/60 p-3.5 sm:p-4 space-y-2">
+            <h3 className="text-xs font-bold text-white uppercase tracking-wider flex items-center gap-2">
+              <Activity className="h-3.5 w-3.5 text-purple-400" /> Recent Security Activity
             </h3>
-            <div className="space-y-2 max-h-40 overflow-y-auto pr-1">
-              {alerts.map(a => (
+            <div className="space-y-1.5 max-h-32 overflow-y-auto pr-1">
+              {alerts.slice(0, 5).map(a => (
                 <div
                   key={a.id}
-                  className={`rounded-xl border p-2.5 text-xs flex items-start justify-between gap-3 ${
+                  className={`rounded-lg border p-2 text-xs flex items-start justify-between gap-3 ${
                     a.severity === 'critical' ? 'border-red-500/40 bg-red-950/30 text-red-200' :
                     a.severity === 'warning' ? 'border-amber-500/30 bg-amber-950/20 text-amber-200' :
                     'border-slate-800 bg-slate-900/50 text-slate-300'
                   }`}
                 >
                   <div>
-                    <span className="font-bold">{a.title}</span>
-                    <p className="text-[11px] text-slate-400 mt-0.5">{a.detail}</p>
+                    <span className="font-bold text-[11px]">{a.title}</span>
+                    <p className="text-[10px] text-slate-400 mt-0.5">{a.detail}</p>
                   </div>
                   <span className="text-[10px] text-slate-500 font-mono shrink-0">{a.timestamp}</span>
                 </div>
@@ -2917,22 +2593,175 @@ export default function SmartSecurityDashboard({
         </div>
       </div>
 
-      {/* Hardware Pin Allocation Summary */}
-      <footer className="rounded-2xl border border-slate-800 bg-slate-950/70 p-4 text-xs text-slate-400 flex flex-wrap items-center justify-between gap-3">
-        <div className="flex flex-wrap items-center gap-4">
-          <span>PIR Sensor: <strong className="text-white">GPIO 15</strong></span>
-          <span>Siren Relay: <strong className="text-white">GPIO 23</strong> (Active HIGH)</span>
-          <span>Buzzer: <strong className="text-white">GPIO 19</strong></span>
-          <span>GSM RX2: <strong className="text-amber-400">GPIO 16</strong></span>
-          <span>GSM TX2: <strong className="text-amber-400">GPIO 17</strong></span>
-          <span>Status LED: <strong className="text-white">GPIO 2</strong></span>
+      {/* ================= 5. CLIENT EMERGENCY CONTACT EDITOR MODAL ================= */}
+      {showContactModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-fadeIn">
+          <div className="relative w-full max-w-lg rounded-2xl border border-amber-500/30 bg-slate-950 p-6 shadow-2xl space-y-4">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+              <div className="flex items-center gap-2">
+                <Phone className="h-5 w-5 text-amber-400" />
+                <h3 className="text-base font-bold text-white">Edit Emergency Contact</h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowContactModal(false)}
+                className="rounded-lg p-1 text-slate-400 hover:text-white cursor-pointer"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <form onSubmit={async (e) => {
+              await handleSaveContacts(e);
+              setShowContactModal(false);
+            }} className="space-y-4">
+              <div>
+                <label className="block text-xs font-bold text-slate-300 mb-1">
+                  Contact Name / Relationship
+                </label>
+                <input
+                  type="text"
+                  value={contacts[0]?.name || ''}
+                  onChange={e => handleUpdateContact(contacts[0]?.id || 'contact-1', { name: e.target.value })}
+                  placeholder="e.g. Home Owner, Spouse, Guard"
+                  className="w-full rounded-xl border border-slate-800 bg-slate-900 px-3 py-2 text-xs text-white focus:border-amber-400 focus:outline-none"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-300 mb-1">
+                  Emergency Phone Number *
+                </label>
+                <input
+                  type="tel"
+                  required
+                  value={contacts[0]?.phone || ''}
+                  onChange={e => handleUpdateContact(contacts[0]?.id || 'contact-1', { phone: e.target.value })}
+                  placeholder="e.g. +233 55 211 7787"
+                  className="w-full rounded-xl border border-slate-800 bg-slate-900 px-3 py-2 text-xs font-mono text-white focus:border-amber-400 focus:outline-none"
+                />
+                <p className="text-[10px] text-slate-400 mt-1">This number is auto-dialed via GSM cellular on intrusion.</p>
+              </div>
+
+              <div className="space-y-2 pt-2 border-t border-slate-800 text-xs">
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={callOnAlarm}
+                    onChange={e => setCallOnAlarm(e.target.checked)}
+                    className="rounded border-slate-700 text-amber-500 focus:ring-0"
+                  />
+                  <span className="text-slate-300">Auto-Dial Phone Call on Intrusion</span>
+                </label>
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={smsOnAlarm}
+                    onChange={e => setSmsOnAlarm(e.target.checked)}
+                    className="rounded border-slate-700 text-amber-500 focus:ring-0"
+                  />
+                  <span className="text-slate-300">Send Instant SMS Alert on Intrusion</span>
+                </label>
+              </div>
+
+              <div className="flex justify-end gap-2 pt-2 border-t border-slate-800">
+                <button
+                  type="button"
+                  onClick={() => setShowContactModal(false)}
+                  className="rounded-xl border border-slate-700 bg-slate-800 px-4 py-2 text-xs font-bold text-slate-300 hover:text-white cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={savingContacts}
+                  className="rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 px-5 py-2 text-xs font-bold text-black hover:opacity-90 cursor-pointer"
+                >
+                  {savingContacts ? 'Saving...' : 'Save Contact'}
+                </button>
+              </div>
+            </form>
+          </div>
         </div>
-        <div className="flex items-center gap-2 text-slate-500 font-mono text-[11px]">
-          <span>Supabase Table: <strong className="text-cyan-400">home_security_status</strong></span>
-          <span>·</span>
-          <span>Target: <strong className="text-cyan-400">security_01</strong></span>
+      )}
+
+      {/* ================= 6. ADMIN / ENGINEERING TOOLS MODAL ================= */}
+      {showEngineeringModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 backdrop-blur-md p-4 animate-fadeIn">
+          <div className="relative w-full max-w-2xl rounded-3xl border border-purple-500/40 bg-slate-950 p-6 text-white shadow-2xl space-y-4 max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+              <div className="flex items-center gap-2">
+                <Settings className="h-5 w-5 text-purple-400" />
+                <h3 className="text-base font-bold text-white">Engineering & Diagnostics Center</h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowEngineeringModal(false)}
+                className="rounded-xl p-1.5 text-slate-400 hover:text-white cursor-pointer"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+              <button
+                type="button"
+                onClick={() => {
+                  setShowEngineeringModal(false);
+                  setShowFirmwareModal(true);
+                }}
+                className="p-3 rounded-xl border border-purple-500/30 bg-purple-500/10 hover:bg-purple-500/20 text-left transition-all cursor-pointer"
+              >
+                <Code className="h-4 w-4 text-purple-400 mb-1" />
+                <span className="block text-xs font-bold text-white">ESP32 Firmware</span>
+                <span className="block text-[10px] text-slate-400">Download .ino Arduino code</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setShowEngineeringModal(false);
+                  setShowSqlModal(true);
+                }}
+                className="p-3 rounded-xl border border-emerald-500/30 bg-emerald-500/10 hover:bg-emerald-500/20 text-left transition-all cursor-pointer"
+              >
+                <Database className="h-4 w-4 text-emerald-400 mb-1" />
+                <span className="block text-xs font-bold text-white">SQL Schema</span>
+                <span className="block text-[10px] text-slate-400">Supabase setup script</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setShowEngineeringModal(false);
+                  setShowLabelModal(true);
+                }}
+                className="p-3 rounded-xl border border-cyan-500/30 bg-cyan-500/10 hover:bg-cyan-500/20 text-left transition-all cursor-pointer"
+              >
+                <Printer className="h-4 w-4 text-cyan-400 mb-1" />
+                <span className="block text-xs font-bold text-white">Casing QR Sticker</span>
+                <span className="block text-[10px] text-slate-400">Print module QR code</span>
+              </button>
+            </div>
+
+            {/* Hardware Pinout Specs */}
+            <div className="p-4 rounded-xl border border-slate-800 bg-slate-900/60 space-y-2 text-xs font-mono text-slate-300">
+              <span className="block font-bold text-cyan-300 text-[11px]">Hardware Pin Allocation:</span>
+              <div className="grid grid-cols-2 gap-2 text-[11px]">
+                <span>PIR Sensor: <strong className="text-white">GPIO 15</strong></span>
+                <span>Siren Relay: <strong className="text-white">GPIO 23</strong></span>
+                <span>Buzzer: <strong className="text-white">GPIO 19</strong></span>
+                <span>GSM SIM800L RX: <strong className="text-amber-400">GPIO 16</strong></span>
+                <span>GSM SIM800L TX: <strong className="text-amber-400">GPIO 17</strong></span>
+                <span>Status LED: <strong className="text-white">GPIO 2</strong></span>
+              </div>
+              <p className="text-[10px] text-slate-400 pt-1 border-t border-slate-800 font-sans">
+                Power requirement: 3.7V - 4.2V (2A peak capability) with 1000uF low-ESR capacitor across VCC/GND.
+              </p>
+            </div>
+          </div>
         </div>
-      </footer>
+      )}
 
       {/* BLE Provisioning Modal */}
       <BleProvisioningModal

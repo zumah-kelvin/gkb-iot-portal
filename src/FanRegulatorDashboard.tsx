@@ -828,7 +828,9 @@ export default function FanRegulatorDashboard({
             <span>Pair BLE</span>
           </button>
 
-          {/* Firmware Code Modal Trigger */}
+          {isAdmin && (
+          <>
+            {/* Firmware Code Modal Trigger */}
           <button
             type="button"
             onClick={() => setShowFirmwareModal(true)}
@@ -847,6 +849,8 @@ export default function FanRegulatorDashboard({
             <Database className="h-4 w-4 text-blue-400" />
             <span>SQL Schema</span>
           </button>
+          </>
+        )}
 
           {/* QR Label Modal Trigger */}
           <button

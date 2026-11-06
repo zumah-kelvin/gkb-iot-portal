@@ -532,10 +532,12 @@ void loop() {
 
 export default function WaterTankDashboard({
   mode = 'service',
-  device
+  device,
+  isAdmin = false
 }: {
   mode?: 'test' | 'service';
   device?: Device;
+  isAdmin?: boolean;
 }) {
   const [waterLevel, setWaterLevel] = useState<number>(68);
   const [distanceCm, setDistanceCm] = useState<number>(32.0);
@@ -960,7 +962,9 @@ export default function WaterTankDashboard({
               BLE QR Provisioning
             </button>
 
-            <button
+            {isAdmin && (
+            <>
+              <button
               type="button"
               onClick={() => setCasingModalOpen(true)}
               className="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl bg-slate-800/80 border border-slate-700 text-slate-200 text-xs font-semibold hover:border-cyan-400/50 hover:text-cyan-300 transition-all cursor-pointer"
@@ -977,6 +981,8 @@ export default function WaterTankDashboard({
               <Code className="h-4 w-4 text-slate-400" />
               ESP32 Sketch
             </button>
+            </>
+          )}
 
             <button
               type="button"

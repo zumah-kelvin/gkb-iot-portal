@@ -134,7 +134,7 @@ function generateRelayArduinoCode(deviceKey: string = 'GKB-RELAY-0001'): string 
 }
 
 // ================= PRIMARY TESTING GROUND: RELAY TEST DASHBOARD =================
-function RelayTestDashboard({ mode = 'service' }: { mode?: 'test' | 'service' }) {
+function RelayTestDashboard({ mode = 'service', isAdmin = false }: { mode?: 'test' | 'service'; isAdmin?: boolean }) {
   const [relayOn, setRelayOn] = useState(false);
   const [relaySession, setRelaySession] = useState<Session | null>(null);
   const [sessionLoading, setSessionLoading] = useState(mode === 'service');
@@ -375,7 +375,9 @@ function RelayTestDashboard({ mode = 'service' }: { mode?: 'test' | 'service' })
               <QrCode className="h-3.5 w-3.5" />
               <span>Provision ESP32</span>
             </button>
-            <button
+            {isAdmin && (
+              <>
+                <button
               type="button"
               onClick={() => {
                 setShowLabelInModal(true);
@@ -396,6 +398,8 @@ function RelayTestDashboard({ mode = 'service' }: { mode?: 'test' | 'service' })
               <Code className="h-3.5 w-3.5 text-cyan-400" />
               <span className="hidden sm:inline">Firmware</span>
             </button>
+              </>
+            )}
             <button
               type="button"
               onClick={() => setShowArchitectureModal(true)}
@@ -3393,15 +3397,15 @@ export default function IoTDevicePortal() {
                 </button>
               </div>
             ) : selectedDevice.project === 'relay-test' ? (
-              <RelayTestDashboard mode="service" />
+              <RelayTestDashboard mode="service" isAdmin={isAdmin} />
             ) : selectedDevice.project === 'light-control' ? (
-              <LightControlDashboard mode="service" device={selectedDevice} />
+              <LightControlDashboard mode="service" device={selectedDevice} isAdmin={isAdmin} />
             ) : selectedDevice.project === 'water-tank-monitor' || selectedDevice.key === 'GKB-SWP-0001' ? (
-              <WaterTankDashboard mode="service" device={selectedDevice} />
+              <WaterTankDashboard mode="service" device={selectedDevice} isAdmin={isAdmin} />
             ) : selectedDevice.project === 'smart-security-system' || selectedDevice.key === 'GKB-SEC-0001' ? (
-              <SmartSecurityDashboard mode="service" device={selectedDevice} />
+              <SmartSecurityDashboard mode="service" device={selectedDevice} isAdmin={isAdmin} />
             ) : selectedDevice.project === 'fan-regulator' || selectedDevice.key === 'GKB-FAN-0001' || selectedDevice.key === 'GKB-SFLC-0001' ? (
-              <FanRegulatorDashboard mode="service" device={selectedDevice} />
+              <FanRegulatorDashboard mode="service" device={selectedDevice} isAdmin={isAdmin} />
             ) : (
               <GenericFleetPreviewDashboard
                 device={selectedDevice}
