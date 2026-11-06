@@ -7,7 +7,7 @@ import WaterTankDashboard from './WaterTankDashboard';
 import SmartSecurityDashboard from './SmartSecurityDashboard';
 import FanRegulatorDashboard from './FanRegulatorDashboard';
 import {
-  Cpu, Shield, Wrench, Phone, PhoneCall, Mail, Globe,
+  Cpu, Shield, Wrench, Info, Phone, PhoneCall, Mail, Globe,
   User, Lock, LogOut, CheckCircle, AlertTriangle,
   ArrowRight, Sun, Moon, Zap, Wifi, Radio, Key,
   Copy, Download, Code, Check, Printer, Bluetooth, QrCode, X, RefreshCw,
@@ -156,6 +156,7 @@ function RelayTestDashboard({ mode = 'service' }: { mode?: 'test' | 'service' })
   const [showLabelInModal, setShowLabelInModal] = useState(false);
   const [showFirmwareModal, setShowFirmwareModal] = useState(false);
   const [copiedFirmware, setCopiedFirmware] = useState(false);
+  const [showArchitectureModal, setShowArchitectureModal] = useState(false);
 
   useEffect(() => {
     if (mode !== 'service') return;
@@ -320,7 +321,7 @@ function RelayTestDashboard({ mode = 'service' }: { mode?: 'test' | 'service' })
   };
 
   return (
-    <section aria-labelledby="relay-test-title" className="mx-auto max-w-5xl space-y-6">
+    <section aria-labelledby="relay-test-title" className="mx-auto max-w-5xl space-y-2.5">
       <style>{`
         @keyframes gkb-relay-wheel-spin {
           to { transform: rotate(360deg); }
@@ -334,61 +335,45 @@ function RelayTestDashboard({ mode = 'service' }: { mode?: 'test' | 'service' })
         }
       `}</style>
 
-      {/* Primary Hardware Test Ground Header */}
-      <header className="rounded-2xl border border-cyan-500/30 bg-slate-900/90 p-5 sm:p-6 shadow-xl shadow-cyan-500/5">
+      {/* Unified Compact Hardware Header Card */}
+      <header className="rounded-2xl border border-cyan-500/30 bg-gradient-to-r from-slate-900/95 via-slate-900/80 to-purple-950/40 p-3 sm:p-4 shadow-lg shadow-cyan-500/5">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-          <div>
-            <div className="flex items-center gap-2">
-              <span className="flex h-2 w-2 rounded-full bg-emerald-400 animate-pulse" />
-              <p className="text-xs font-bold uppercase tracking-[0.2em] text-cyan-300">
-                Primary Hardware Testing Ground · Live Supabase relay_01
-              </p>
-            </div>
-            <h2 id="relay-test-title" className="mt-1 text-2xl font-black text-white sm:text-3xl">
-              ESP32 Relay Test & Provisioning Center
-            </h2>
-          </div>
-          <span className="inline-flex items-center gap-1.5 rounded-full border border-cyan-500/40 bg-cyan-500/10 px-3.5 py-1.5 font-mono text-xs font-bold text-cyan-300 w-fit">
-            <Cpu className="h-4 w-4 text-cyan-400" /> Active Hardware: GKB-RELAY-0001
-          </span>
-        </div>
-        <p className="mt-2 text-xs sm:text-sm text-slate-300 leading-relaxed max-w-3xl">
-          Designated primary testing ground for GKB hardware communication, Web Bluetooth (BLE) handshake, phone camera QR verification, NVS flash credentials storage, and cloud relay actuation.
-        </p>
-      </header>
-
-      {/* Hardware BLE + QR Provisioning Pilot Hero Card */}
-      <section aria-label="Hardware BLE and QR Provisioning" className="rounded-2xl border border-cyan-500/30 bg-gradient-to-br from-slate-900/95 via-slate-900/70 to-purple-950/40 p-5 sm:p-6 shadow-xl shadow-cyan-500/5 space-y-5">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-800/80 pb-4">
-          <div className="flex items-center gap-3.5">
-            <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-tr from-cyan-500 to-purple-600 text-black shadow-lg shadow-cyan-500/20 shrink-0">
-              <Bluetooth className="h-6 w-6 text-black" />
+          <div className="flex items-center gap-3">
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-tr from-cyan-500 to-purple-600 text-black shadow-md shadow-cyan-500/20 shrink-0">
+              <Zap className="h-5 w-5 text-black fill-black" />
             </div>
             <div>
-              <div className="flex items-center gap-2">
-                <span className="text-[10px] font-bold uppercase tracking-widest text-cyan-400">Hardware Pilot</span>
-                <span className="inline-flex items-center gap-1 rounded-full bg-cyan-500/10 px-2.5 py-0.5 text-[10px] font-mono font-bold text-cyan-300 border border-cyan-500/30">
-                  Target: GKB-RELAY-0001
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="flex h-2 w-2 rounded-full bg-emerald-400 animate-pulse" />
+                <h2 id="relay-test-title" className="text-base sm:text-lg font-black text-white">
+                  ESP32 Relay Test & Provisioning Center
+                </h2>
+                <span className="inline-flex items-center gap-1 rounded-full bg-cyan-500/10 px-2 py-0.5 text-[10px] font-mono font-bold text-cyan-300 border border-cyan-500/30">
+                  GKB-RELAY-0001
                 </span>
                 <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/10 px-2 py-0.5 text-[10px] font-bold text-emerald-400 border border-emerald-500/30">
-                  <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" /> BLE GATT Active
+                  BLE GATT Active
                 </span>
               </div>
-              <h3 className="text-base sm:text-lg font-black text-white mt-1">ESP32 BLE + QR Provisioning & Cloud Relay Control</h3>
+              <p className="text-[11px] text-slate-300 mt-0.5 max-w-2xl">
+                Primary testing ground for Web Bluetooth (BLE) handshake, zero-trust casing QR verification, and cloud relay actuation.
+              </p>
             </div>
           </div>
-          <div className="flex flex-wrap items-center gap-2.5">
+
+          {/* Quick Actions */}
+          <div className="flex flex-wrap items-center gap-2 shrink-0">
             <button
               type="button"
               onClick={() => {
                 setShowLabelInModal(false);
                 setProvisionModalOpen(true);
               }}
-              className="inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-cyan-500 to-purple-600 px-4 py-2.5 text-xs font-black uppercase tracking-wider text-black shadow-lg shadow-cyan-500/20 hover:opacity-90 transition-all cursor-pointer"
+              className="inline-flex items-center gap-1.5 rounded-xl bg-gradient-to-r from-cyan-500 to-purple-600 px-3 py-2 text-xs font-black uppercase tracking-wider text-black shadow-md shadow-cyan-500/20 hover:opacity-90 transition-all cursor-pointer"
             >
-              <Bluetooth className="h-4 w-4" />
-              <QrCode className="h-4 w-4" />
-              Provision ESP32 (BLE & QR)
+              <Bluetooth className="h-3.5 w-3.5" />
+              <QrCode className="h-3.5 w-3.5" />
+              <span>Provision ESP32</span>
             </button>
             <button
               type="button"
@@ -396,81 +381,56 @@ function RelayTestDashboard({ mode = 'service' }: { mode?: 'test' | 'service' })
                 setShowLabelInModal(true);
                 setProvisionModalOpen(true);
               }}
-              className="inline-flex items-center gap-1.5 rounded-xl border border-purple-500/40 bg-purple-500/10 px-3.5 py-2.5 text-xs font-bold text-purple-200 hover:bg-purple-500/20 transition-all cursor-pointer"
+              className="inline-flex items-center gap-1.5 rounded-xl border border-purple-500/40 bg-purple-500/10 px-2.5 py-2 text-xs font-bold text-purple-200 hover:bg-purple-500/20 transition-all cursor-pointer"
+              title="Print casing QR sticker label"
             >
               <Printer className="h-3.5 w-3.5 text-purple-400" />
-              Print QR Label
+              <span className="hidden sm:inline">QR Sticker</span>
             </button>
             <button
               type="button"
               onClick={() => setShowFirmwareModal(true)}
-              className="inline-flex items-center gap-1.5 rounded-xl border border-slate-700 bg-slate-800/80 px-3.5 py-2.5 text-xs font-bold text-slate-300 hover:text-cyan-300 hover:border-cyan-500/40 transition-all cursor-pointer"
+              className="inline-flex items-center gap-1.5 rounded-xl border border-slate-700 bg-slate-800/80 px-2.5 py-2 text-xs font-bold text-slate-300 hover:text-cyan-300 hover:border-cyan-500/40 transition-all cursor-pointer"
+              title="Inspect ESP32 Arduino C++ firmware"
             >
               <Code className="h-3.5 w-3.5 text-cyan-400" />
-              ESP32 Firmware
+              <span className="hidden sm:inline">Firmware</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setShowArchitectureModal(true)}
+              className="inline-flex items-center gap-1.5 rounded-xl border border-slate-700 bg-slate-800/60 px-2.5 py-2 text-xs font-medium text-slate-300 hover:text-cyan-300 hover:border-cyan-500/30 transition-all cursor-pointer"
+              title="View BLE & Cloud 3-Step Architecture Flow"
+            >
+              <Info className="h-3.5 w-3.5 text-cyan-400" />
+              <span className="hidden md:inline">How It Works</span>
             </button>
           </div>
         </div>
 
-        {/* 3-Step Architecture Flow Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-          <div className="rounded-xl border border-cyan-500/20 bg-slate-950/60 p-4 space-y-1.5">
-            <div className="flex items-center gap-2">
-              <span className="flex h-5 w-5 items-center justify-center rounded-md bg-cyan-500/20 text-[10px] font-bold text-cyan-300">1</span>
-              <span className="text-[11px] font-bold uppercase tracking-wider text-cyan-300">BLE Local Handshake</span>
-            </div>
-            <p className="text-xs font-bold text-white">Web Bluetooth GATT Server</p>
-            <p className="text-[11px] text-slate-400 leading-relaxed">
-              Discovers ESP32 beacon and establishes encrypted local GATT channel without cloud dependencies.
-            </p>
-          </div>
-
-          <div className="rounded-xl border border-purple-500/20 bg-slate-950/60 p-4 space-y-1.5">
-            <div className="flex items-center gap-2">
-              <span className="flex h-5 w-5 items-center justify-center rounded-md bg-purple-500/20 text-[10px] font-bold text-purple-300">2</span>
-              <span className="text-[11px] font-bold uppercase tracking-wider text-purple-300">QR Tag Verification</span>
-            </div>
-            <p className="text-xs font-bold text-white">Zero-Trust Casing Key</p>
-            <p className="text-[11px] text-slate-400 leading-relaxed">
-              Scans physical QR sticker with phone camera. Transmits VERIFY:GKB-RELAY-0001 over BLE for hardware authentication.
-            </p>
-          </div>
-
-          <div className="rounded-xl border border-emerald-500/20 bg-slate-950/60 p-4 space-y-1.5">
-            <div className="flex items-center gap-2">
-              <span className="flex h-5 w-5 items-center justify-center rounded-md bg-emerald-500/20 text-[10px] font-bold text-emerald-300">3</span>
-              <span className="text-[11px] font-bold uppercase tracking-wider text-emerald-300">Preferences.h Storage</span>
-            </div>
-            <p className="text-xs font-bold text-white">NVS Flash Commit</p>
-            <p className="text-[11px] text-slate-400 leading-relaxed">
-              Transfers local Wi-Fi SSID and password. ESP32 commits credentials to Flash and reboots into operational Cloud Relay mode.
-            </p>
-          </div>
-        </div>
-
         {/* Pinout and Hardware Specs Bar */}
-        <div className="flex flex-wrap items-center justify-between gap-3 pt-1 text-xs text-slate-400 border-t border-slate-800/60">
-          <div className="flex flex-wrap items-center gap-4 font-mono text-[11px]">
-            <span className="flex items-center gap-1.5 text-cyan-300">
-              <Cpu className="h-3.5 w-3.5 text-cyan-400" /> Relay Output: <strong className="text-white">GPIO 23</strong>
+        <div className="flex flex-wrap items-center justify-between gap-2 pt-2 mt-2 text-[11px] text-slate-400 border-t border-slate-800/60 font-mono">
+          <div className="flex flex-wrap items-center gap-3">
+            <span className="flex items-center gap-1 text-cyan-300">
+              <Cpu className="h-3 w-3 text-cyan-400" /> Relay: <strong className="text-white">GPIO 23</strong>
             </span>
-            <span className="flex items-center gap-1.5 text-purple-300">
-              <Radio className="h-3.5 w-3.5 text-purple-400" /> Status LED: <strong className="text-white">GPIO 2</strong>
+            <span className="flex items-center gap-1 text-purple-300">
+              <Radio className="h-3 w-3 text-purple-400" /> LED: <strong className="text-white">GPIO 2</strong>
             </span>
-            <span className="flex items-center gap-1.5 text-amber-300">
-              <Key className="h-3.5 w-3.5 text-amber-400" /> Factory Reset: <strong className="text-white">BOOT (GPIO 0) 5s</strong>
+            <span className="flex items-center gap-1 text-amber-300">
+              <Key className="h-3 w-3 text-amber-400" /> Reset: <strong className="text-white">BOOT (0) 5s</strong>
             </span>
           </div>
-          <span className="text-[11px] text-slate-500">
-            Cloud Endpoint: <code className="text-slate-400 font-mono">public.relay_status (relay_01)</code>
+          <span className="text-[10px] text-slate-500 hidden sm:inline">
+            Endpoint: <code className="text-slate-400 font-mono">public.relay_status (relay_01)</code>
           </span>
         </div>
-      </section>
+      </header>
 
       {/* Relay Hardware Output & Animated Visualizer */}
-      <div className="grid gap-5 md:grid-cols-[1fr_auto]">
-        <section aria-label="Animated car relay output" className={`flex min-h-64 flex-col items-center justify-center rounded-2xl border p-6 transition-colors ${relayOn ? 'border-emerald-400/30 bg-emerald-400/[0.04]' : 'border-slate-800 bg-slate-900/70'}`}>
-          <svg role="img" aria-label={relayOn ? 'Car with spinning tires' : 'Stationary car with stopped tires'} viewBox="0 0 440 220" className="w-full max-w-lg">
+      <div className="grid gap-3 md:grid-cols-[1.3fr_1fr] items-stretch">
+        <section aria-label="Animated car relay output" className={`flex flex-col items-center justify-center rounded-2xl border p-4 sm:p-5 transition-colors ${relayOn ? 'border-emerald-400/30 bg-emerald-400/[0.04]' : 'border-slate-800 bg-slate-900/70'}`}>
+          <svg role="img" aria-label={relayOn ? 'Car with spinning tires' : 'Stationary car with stopped tires'} viewBox="0 0 440 220" className="w-full max-w-sm h-36 sm:h-44">
             <line x1="35" y1="183" x2="405" y2="183" stroke="#475569" strokeWidth="5" strokeLinecap="round" />
             <path d="M96 145 L123 102 Q133 86 157 83 L259 83 Q279 85 295 105 L328 123 L356 132 Q369 138 371 153 L371 169 L83 169 L83 154 Q84 147 96 145Z" fill={relayOn ? '#0891b2' : '#475569'} stroke={relayOn ? '#67e8f9' : '#94a3b8'} strokeWidth="5" strokeLinejoin="round" />
             <path d="M143 101 Q150 93 163 93 L201 93 L201 121 L128 121Z" fill="#bae6fd" opacity="0.9" />
@@ -487,19 +447,19 @@ function RelayTestDashboard({ mode = 'service' }: { mode?: 'test' | 'service' })
               </g>
             ))}
           </svg>
-          <p className={`mt-2 text-sm font-semibold ${relayOn ? 'text-emerald-300' : 'text-slate-400'}`}>
+          <p className={`mt-2 text-xs sm:text-sm font-semibold ${relayOn ? 'text-emerald-300' : 'text-slate-400'}`}>
             {relayOn ? 'Relay ON · GPIO 23 Output HIGH · Wheels Spinning' : 'Relay OFF · GPIO 23 Output LOW · Stationary'}
           </p>
         </section>
 
-        <section aria-label="Relay switch control" className="flex min-w-56 flex-col items-center justify-center gap-4 rounded-2xl border border-slate-800 bg-slate-900/70 p-6">
+        <section aria-label="Relay switch control" className="flex flex-col items-center justify-center gap-2.5 rounded-2xl border border-slate-800 bg-slate-900/70 p-4 sm:p-5">
           <div className="flex items-center gap-2">
             <span className={`h-2.5 w-2.5 rounded-full ${mode === 'test' ? 'bg-slate-500' : connectionState === 'connected' ? 'bg-emerald-400' : connectionState === 'error' ? 'bg-red-400' : 'bg-amber-400'}`} />
-            <p className="text-xs font-bold uppercase tracking-wider text-slate-400">
+            <p className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
               {mode === 'test' ? 'Simulated relay' : connectionState === 'connected' ? 'Supabase connected' : connectionState === 'error' ? 'Supabase error' : 'Connecting to Supabase'}
             </p>
           </div>
-          <p className="text-xs font-bold uppercase tracking-wider text-slate-400">Relay output · relay_01</p>
+          <p className="text-[11px] font-bold uppercase tracking-wider text-slate-400">Relay output · relay_01</p>
           <button
             type="button"
             role="switch"
@@ -518,17 +478,16 @@ function RelayTestDashboard({ mode = 'service' }: { mode?: 'test' | 'service' })
             <p className="text-center text-xs leading-relaxed text-slate-500">Demo toggle mode · test the output visualizer.</p>
           ) : (
             <>
-              {lastSyncedAt && <p className="text-center text-xs text-slate-400">Last cloud sync: {lastSyncedAt.toLocaleTimeString()}</p>}
+              {lastSyncedAt && <p className="text-center text-[10px] text-slate-400">Last cloud sync: {lastSyncedAt.toLocaleTimeString()}</p>}
               {relayError && (
-                <div role="alert" className="w-full max-w-xs rounded-xl border border-red-500/40 bg-red-950/60 p-3 text-left">
+                <div role="alert" className="w-full max-w-xs rounded-xl border border-red-500/40 bg-red-950/60 p-2.5 text-left">
                   <div className="flex items-start gap-2">
                     <AlertTriangle className="h-4 w-4 text-red-400 shrink-0 mt-0.5" />
                     <div className="text-xs text-red-200">
                       <p className="font-semibold text-red-100">{relayError}</p>
                       {(relayError.includes('42501') || relayError.includes('permission denied')) && (
-                        <div className="mt-2 text-[11px] text-amber-200 bg-amber-950/60 border border-amber-500/40 rounded-lg p-2.5 space-y-1.5">
+                        <div className="mt-2 text-[11px] text-amber-200 bg-amber-950/60 border border-amber-500/40 rounded-lg p-2 space-y-1">
                           <p className="font-bold text-amber-300">Supabase SQL Grant Required</p>
-                          <p className="text-slate-300">Run this in your Supabase SQL Editor to allow public switch control:</p>
                           <button
                             type="button"
                             onClick={() => {
@@ -539,9 +498,9 @@ function RelayTestDashboard({ mode = 'service' }: { mode?: 'test' | 'service' })
                               );
                               setRelayMessage('SQL copied! Paste and Run in Supabase SQL Editor.');
                             }}
-                            className="inline-flex items-center gap-1.5 rounded bg-amber-500/20 px-2.5 py-1 text-[11px] font-bold text-amber-300 hover:bg-amber-500/30 border border-amber-500/50 cursor-pointer"
+                            className="inline-flex items-center gap-1.5 rounded bg-amber-500/20 px-2 py-1 text-[10px] font-bold text-amber-300 hover:bg-amber-500/30 border border-amber-500/50 cursor-pointer"
                           >
-                            <Copy className="h-3.5 w-3.5" /> Copy SQL Grant
+                            <Copy className="h-3 w-3" /> Copy SQL Grant
                           </button>
                         </div>
                       )}
@@ -550,7 +509,7 @@ function RelayTestDashboard({ mode = 'service' }: { mode?: 'test' | 'service' })
                 </div>
               )}
               {relayMessage && <p role="status" className="max-w-64 text-center text-xs leading-relaxed text-emerald-300 font-semibold">{relayMessage}</p>}
-              <p className="max-w-64 text-center text-xs leading-relaxed text-slate-400">
+              <p className="max-w-64 text-center text-[11px] leading-relaxed text-slate-400">
                 ESP32 polls <code className="text-cyan-300 font-mono">public.relay_status</code> every 2.5s and switches GPIO 23.
               </p>
             </>
@@ -558,64 +517,76 @@ function RelayTestDashboard({ mode = 'service' }: { mode?: 'test' | 'service' })
         </section>
       </div>
 
-      {mode === 'service' && (
-        <section aria-label="Supabase relay account" className="rounded-2xl border border-slate-800 bg-slate-900/70 p-5 sm:p-6">
-          {relaySession ? (
-            <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-              <div>
-                <p className="text-sm font-semibold text-white">Supabase signed in</p>
-                <p className="mt-1 text-xs text-slate-400">
-                  {relaySession.user.email?.toLowerCase() === 'zumkel023@gmail.com' ? (
-                    <span className="text-amber-300 font-mono font-bold flex items-center gap-1"><Shield className="w-3 h-3 text-amber-400" /> Admin</span>
-                  ) : relaySession.user.email}
-                </p>
-                {authMessage && <p role={authMessageIsError ? 'alert' : 'status'} className={`mt-2 text-xs ${authMessageIsError ? 'text-red-300' : 'text-emerald-200'}`}>{authMessage}</p>}
+      {/* Architecture Flow Inspection Modal */}
+      {showArchitectureModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 backdrop-blur-md p-4 animate-fadeIn">
+          <div className="relative w-full max-w-3xl rounded-3xl border border-cyan-500/40 bg-slate-950 p-6 sm:p-7 text-white shadow-[0_0_50px_rgba(6,182,212,0.25)] space-y-4">
+            <div className="flex items-start justify-between border-b border-slate-800 pb-3">
+              <div className="flex items-center gap-2.5">
+                <div className="p-2 rounded-xl bg-cyan-500/10 border border-cyan-500/30 text-cyan-400">
+                  <Info className="h-5 w-5" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-black text-white">ESP32 BLE & Cloud Architecture Flow</h3>
+                  <p className="text-xs text-slate-400">Zero-Trust Casing Verification, Local GATT Pairing & NVS Flash Commit</p>
+                </div>
               </div>
-              <button type="button" onClick={() => void handleSupabaseSignOut()} disabled={authBusy} className="rounded-lg border border-slate-700 px-4 py-2 text-sm font-semibold text-slate-200 hover:border-cyan-400 disabled:opacity-50 cursor-pointer">
-                {authBusy ? 'Signing out…' : 'Sign out'}
+              <button
+                type="button"
+                onClick={() => setShowArchitectureModal(false)}
+                className="rounded-xl border border-slate-800 bg-slate-900 p-2 text-slate-400 hover:text-white cursor-pointer"
+              >
+                <X className="h-5 w-5" />
               </button>
             </div>
-          ) : (
-            <>
-              <h3 className="text-sm font-semibold text-white">{creatingAccount ? 'Create a Supabase account' : 'Supabase Account (Optional — Admin / Ownership)'}</h3>
-              <p className="mt-1 text-xs leading-relaxed text-slate-400">
-                Direct cloud relay toggle is active above for the hardware pilot. Signing in binds administrative ownership of relay_01 to your email.
-              </p>
-              {authMessage && <p role={authMessageIsError ? 'alert' : 'status'} className={`mt-3 rounded-lg px-3 py-2 text-xs ${authMessageIsError ? 'bg-red-500/10 text-red-300' : 'bg-emerald-500/10 text-emerald-200'}`}>{authMessage}</p>}
-              <form onSubmit={handleSupabaseAuth} className="mt-4 grid gap-3 sm:grid-cols-[1fr_1fr_auto]">
-                <label className="sr-only" htmlFor="relay-auth-email">Supabase email</label>
-                <input
-                  id="relay-auth-email"
-                  type="email"
-                  autoComplete="email"
-                  required
-                  value={authEmail}
-                  onChange={event => setAuthEmail(event.target.value)}
-                  placeholder="Supabase account email"
-                  className="rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white outline-none focus:border-cyan-400"
-                />
-                <label className="sr-only" htmlFor="relay-auth-password">Supabase password</label>
-                <input
-                  id="relay-auth-password"
-                  type="password"
-                  autoComplete={creatingAccount ? 'new-password' : 'current-password'}
-                  minLength={6}
-                  required
-                  value={authPassword}
-                  onChange={event => setAuthPassword(event.target.value)}
-                  placeholder="Password"
-                  className="rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white outline-none focus:border-cyan-400"
-                />
-                <button type="submit" disabled={authBusy || sessionLoading || !relaySupabase} className="rounded-lg bg-cyan-500 px-4 py-2 text-sm font-bold text-slate-950 hover:bg-cyan-400 disabled:opacity-50 cursor-pointer">
-                  {authBusy ? 'Working…' : creatingAccount ? 'Create account' : sessionLoading ? 'Loading…' : 'Sign in'}
-                </button>
-              </form>
-              <button type="button" onClick={() => { setCreatingAccount(current => !current); setAuthMessage(''); setAuthMessageIsError(false); }} className="mt-3 text-xs text-cyan-300 hover:text-cyan-200 cursor-pointer">
-                {creatingAccount ? 'Already registered? Sign in' : 'Need a Supabase account? Create one'}
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+              <div className="rounded-xl border border-cyan-500/20 bg-slate-900/60 p-4 space-y-1.5">
+                <div className="flex items-center gap-2">
+                  <span className="flex h-5 w-5 items-center justify-center rounded-md bg-cyan-500/20 text-[10px] font-bold text-cyan-300">1</span>
+                  <span className="text-[11px] font-bold uppercase tracking-wider text-cyan-300">BLE Local Handshake</span>
+                </div>
+                <p className="text-xs font-bold text-white">Web Bluetooth GATT Server</p>
+                <p className="text-[11px] text-slate-400 leading-relaxed">
+                  Discovers ESP32 beacon and establishes encrypted local GATT channel without cloud dependencies.
+                </p>
+              </div>
+
+              <div className="rounded-xl border border-purple-500/20 bg-slate-900/60 p-4 space-y-1.5">
+                <div className="flex items-center gap-2">
+                  <span className="flex h-5 w-5 items-center justify-center rounded-md bg-purple-500/20 text-[10px] font-bold text-purple-300">2</span>
+                  <span className="text-[11px] font-bold uppercase tracking-wider text-purple-300">QR Tag Verification</span>
+                </div>
+                <p className="text-xs font-bold text-white">Zero-Trust Casing Key</p>
+                <p className="text-[11px] text-slate-400 leading-relaxed">
+                  Scans physical QR sticker with phone camera. Transmits VERIFY:GKB-RELAY-0001 over BLE for hardware authentication.
+                </p>
+              </div>
+
+              <div className="rounded-xl border border-emerald-500/20 bg-slate-900/60 p-4 space-y-1.5">
+                <div className="flex items-center gap-2">
+                  <span className="flex h-5 w-5 items-center justify-center rounded-md bg-emerald-500/20 text-[10px] font-bold text-emerald-300">3</span>
+                  <span className="text-[11px] font-bold uppercase tracking-wider text-emerald-300">Preferences.h Storage</span>
+                </div>
+                <p className="text-xs font-bold text-white">NVS Flash Commit</p>
+                <p className="text-[11px] text-slate-400 leading-relaxed">
+                  Transfers local Wi-Fi SSID and password. ESP32 commits credentials to Flash and reboots into operational Cloud Relay mode.
+                </p>
+              </div>
+            </div>
+
+            <div className="p-3 rounded-xl bg-slate-900 border border-slate-800 text-xs text-slate-400 flex items-center justify-between">
+              <span>Cloud Status Endpoint: <code className="text-cyan-300 font-mono">public.relay_status (relay_01)</code></span>
+              <button
+                type="button"
+                onClick={() => setShowArchitectureModal(false)}
+                className="px-4 py-1.5 rounded-lg bg-cyan-500 text-slate-950 font-bold hover:bg-cyan-400 cursor-pointer"
+              >
+                Got It
               </button>
-            </>
-          )}
-        </section>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* Interactive BLE & QR Provisioning Modal */}
@@ -2477,7 +2448,8 @@ export default function IoTDevicePortal() {
       </header>
 
       {/* Main Body */}
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8">
+      <main className={`max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 ${activeTab === 'dashboard' ? 'py-2.5 sm:py-3 space-y-2.5' : 'py-8 space-y-8'}`}>
+
         {/* ================= 1. CLIENT / USER "MY DEVICES" VIEW ================= */}
         {activeTab === 'my-devices' && (
           <div className="space-y-8 animate-fadeIn">
@@ -3310,54 +3282,34 @@ export default function IoTDevicePortal() {
 
         {/* ================= 5. PRIMARY DASHBOARD VIEW ================= */}
         {activeTab === 'dashboard' && (
-          <div className="space-y-6 animate-fadeIn">
-            {/* Top Navigation & Status Bar */}
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3.5 rounded-2xl border border-slate-800 bg-slate-900/90 shadow-md">
-              <button
-                type="button"
-                onClick={() => {
-                  setActiveTab(isAdmin ? 'fleet' : 'my-devices');
-                  window.scrollTo({ top: 0, behavior: 'smooth' });
-                }}
-                className="inline-flex items-center gap-2 rounded-xl border border-slate-700 bg-slate-800 px-3.5 py-1.5 text-xs font-bold text-slate-200 hover:border-cyan-400 hover:text-cyan-300 transition-colors cursor-pointer w-fit"
-              >
-                <ArrowRight className="h-4 w-4 rotate-180" />
-                {isAdmin ? 'Back to Hardware Fleet' : 'Back to My Devices'}
-              </button>
+          <div className="space-y-2.5 animate-fadeIn">
+            {/* Top Navigation & Fast Device Selector Bar */}
+            <div className="flex flex-wrap items-center justify-between gap-2 p-2 sm:p-2.5 rounded-xl border border-slate-800 bg-slate-900/95 shadow-md">
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setActiveTab(isAdmin ? 'fleet' : 'my-devices');
+                    window.scrollTo({ top: 0, behavior: 'smooth' });
+                  }}
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-slate-700 bg-slate-800/90 px-3 py-1.5 text-xs font-bold text-slate-200 hover:border-cyan-400 hover:text-cyan-300 transition-colors cursor-pointer shrink-0"
+                >
+                  <ArrowRight className="h-3.5 w-3.5 rotate-180" />
+                  <span>{isAdmin ? 'Fleet Hub' : 'My Devices'}</span>
+                </button>
 
-              <div className="flex flex-wrap items-center gap-2">
-                <span className="text-xs text-slate-400">Active Node:</span>
-                {selectedDevice ? (
-                  <span className="text-xs font-mono font-bold text-cyan-300 bg-slate-950 px-3 py-1 rounded-lg border border-cyan-500/30">
-                    {selectedDevice.name} ({selectedDevice.key})
+                <div className="hidden sm:flex items-center gap-1.5 text-xs">
+                  <span className="text-slate-400">Node:</span>
+                  <span className="font-mono font-bold text-cyan-300 bg-slate-950 px-2 py-0.5 rounded border border-cyan-500/30 text-[11px]">
+                    {selectedDevice?.key}
                   </span>
-                ) : (
-                  <span className="text-xs text-amber-300 bg-amber-500/10 px-3 py-1 rounded-lg border border-amber-500/30">
-                    No Device Selected
-                  </span>
-                )}
-                {selectedDevice && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setBleTargetDevice(selectedDevice);
-                      setBleModalOpen(true);
-                    }}
-                    className="inline-flex items-center gap-1.5 rounded-lg border border-cyan-500/30 bg-cyan-500/10 px-2.5 py-1 text-xs font-bold text-cyan-300 hover:bg-cyan-500/20 transition-colors cursor-pointer"
-                  >
-                    <Bluetooth className="w-3.5 h-3.5" />
-                    BLE Provision
-                  </button>
-                )}
+                </div>
               </div>
-            </div>
 
-            {/* Device Switcher Bar */}
-            {isAdmin ? (
-              /* Admin: Full Fleet Pills Switcher */
-              <div className="space-y-2">
-                <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Admin Fleet Quick Switcher:</p>
-                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-2">
+              {/* Fast Device Switcher Pills (Horizontal 1-Line Strip) */}
+              {isAdmin ? (
+                <div className="flex items-center gap-1.5 overflow-x-auto py-0.5 max-w-full no-scrollbar">
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 hidden xl:inline mr-1">Switch:</span>
                   {deployedDevices.map(d => {
                     const isSelected = selectedDevice?.key === d.key;
                     return (
@@ -3368,25 +3320,22 @@ export default function IoTDevicePortal() {
                           setSelectedDevice(d);
                           setLinkMessage('');
                         }}
-                        className={`p-2.5 rounded-xl border text-left transition-all text-xs cursor-pointer ${
+                        title={d.name}
+                        className={`px-2.5 py-1 rounded-lg text-xs font-semibold whitespace-nowrap transition-all cursor-pointer ${
                           isSelected
-                            ? 'border-cyan-400 bg-cyan-500/20 shadow-md shadow-cyan-500/20 ring-1 ring-cyan-400'
-                            : 'border-slate-800 bg-slate-900/60 hover:bg-slate-850'
+                            ? 'bg-cyan-500 text-slate-950 font-bold shadow-md shadow-cyan-500/30 ring-1 ring-cyan-300'
+                            : 'border border-slate-800/80 bg-slate-950/70 text-slate-300 hover:text-white hover:border-slate-700'
                         }`}
                       >
-                        <span className="block font-mono text-[10px] text-cyan-300 truncate">{d.key}</span>
-                        <span className="block font-bold text-white truncate mt-0.5">{d.name.split(' (')[0].replace('ESP32 ', '')}</span>
+                        <span className="font-mono text-[10px] opacity-75 mr-1">{d.key.replace('GKB-', '')}</span>
+                        <span>{d.name.split(' (')[0].replace('ESP32 ', '').replace('Smart ', '')}</span>
                       </button>
                     );
                   })}
                 </div>
-              </div>
-            ) : (
-              /* Client: Only Their Linked Devices Switcher */
-              linkedDevices.length > 1 && (
-                <div className="space-y-2">
-                  <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">My Devices:</p>
-                  <div className="flex flex-wrap gap-2">
+              ) : (
+                linkedDevices.length > 1 && (
+                  <div className="flex items-center gap-1.5 overflow-x-auto py-0.5 no-scrollbar">
                     {linkedDevices.map(d => {
                       const isSelected = selectedDevice?.key === d.key;
                       return (
@@ -3397,27 +3346,35 @@ export default function IoTDevicePortal() {
                             setSelectedDevice(d);
                             setLinkMessage('');
                           }}
-                          className={`px-3 py-1.5 rounded-xl border text-xs font-bold transition-all cursor-pointer ${
+                          className={`px-2.5 py-1 rounded-lg text-xs font-semibold whitespace-nowrap transition-all cursor-pointer ${
                             isSelected
-                              ? 'border-cyan-400 bg-cyan-500/20 text-cyan-300 ring-1 ring-cyan-400'
-                              : 'border-slate-800 bg-slate-900 text-slate-300 hover:border-slate-700'
+                              ? 'bg-cyan-500 text-slate-950 font-bold shadow-md shadow-cyan-500/30'
+                              : 'border border-slate-800 bg-slate-950 text-slate-300 hover:text-white'
                           }`}
                         >
-                          {d.name} ({d.key})
+                          {d.name.split(' (')[0]}
                         </button>
                       );
                     })}
-                    <button
-                      type="button"
-                      onClick={() => setActiveTab('add-device')}
-                      className="px-3 py-1.5 rounded-xl border border-dashed border-cyan-500/40 text-cyan-400 text-xs font-bold hover:bg-cyan-500/10 transition-colors cursor-pointer"
-                    >
-                      + Add Another Device
-                    </button>
                   </div>
-                </div>
-              )
-            )}
+                )
+              )}
+
+              {/* Right Action: BLE Provision */}
+              {selectedDevice && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setBleTargetDevice(selectedDevice);
+                    setBleModalOpen(true);
+                  }}
+                  className="inline-flex items-center gap-1 rounded-lg border border-cyan-500/30 bg-cyan-500/10 px-2.5 py-1.5 text-xs font-bold text-cyan-300 hover:bg-cyan-500/20 transition-colors cursor-pointer shrink-0"
+                >
+                  <Bluetooth className="w-3.5 h-3.5" />
+                  <span className="hidden sm:inline">BLE Provision</span>
+                </button>
+              )}
+            </div>
 
             {/* Dashboard Component Display */}
             {!selectedDevice ? (
