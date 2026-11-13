@@ -438,11 +438,13 @@ void loop() {
 interface FanRegulatorDashboardProps {
   mode?: 'test' | 'service';
   device?: Device;
+  isAdmin?: boolean;
 }
 
 export default function FanRegulatorDashboard({
   mode = 'service',
-  device
+  device,
+  isAdmin = false
 }: FanRegulatorDashboardProps) {
   // Fan state variables
   const [powerState, setPowerState] = useState(true);
@@ -829,38 +831,38 @@ export default function FanRegulatorDashboard({
           </button>
 
           {isAdmin && (
-          <>
-            {/* Firmware Code Modal Trigger */}
-          <button
-            type="button"
-            onClick={() => setShowFirmwareModal(true)}
-            className="inline-flex items-center gap-1.5 rounded-xl border border-slate-700 bg-slate-800/80 px-3 py-2 text-xs font-bold text-slate-200 hover:text-white hover:border-slate-600 transition-all cursor-pointer"
-          >
-            <Code className="h-4 w-4 text-cyan-400" />
-            <span>Firmware</span>
-          </button>
+            <>
+              {/* Firmware Code Modal Trigger */}
+              <button
+                type="button"
+                onClick={() => setShowFirmwareModal(true)}
+                className="inline-flex items-center gap-1.5 rounded-xl border border-slate-700 bg-slate-800/80 px-3 py-2 text-xs font-bold text-slate-200 hover:text-white hover:border-slate-600 transition-all cursor-pointer"
+              >
+                <Code className="h-4 w-4 text-cyan-400" />
+                <span>Firmware</span>
+              </button>
 
-          {/* SQL Setup Modal Trigger */}
-          <button
-            type="button"
-            onClick={() => setShowSqlModal(true)}
-            className="inline-flex items-center gap-1.5 rounded-xl border border-slate-700 bg-slate-800/80 px-3 py-2 text-xs font-bold text-slate-200 hover:text-white hover:border-slate-600 transition-all cursor-pointer"
-          >
-            <Database className="h-4 w-4 text-blue-400" />
-            <span>SQL Schema</span>
-          </button>
-          </>
-        )}
+              {/* SQL Setup Modal Trigger */}
+              <button
+                type="button"
+                onClick={() => setShowSqlModal(true)}
+                className="inline-flex items-center gap-1.5 rounded-xl border border-slate-700 bg-slate-800/80 px-3 py-2 text-xs font-bold text-slate-200 hover:text-white hover:border-slate-600 transition-all cursor-pointer"
+              >
+                <Database className="h-4 w-4 text-blue-400" />
+                <span>SQL Schema</span>
+              </button>
 
-          {/* QR Label Modal Trigger */}
-          <button
-            type="button"
-            onClick={() => setShowLabelModal(true)}
-            className="inline-flex items-center gap-1.5 rounded-xl border border-slate-700 bg-slate-800/80 px-3 py-2 text-xs font-bold text-slate-200 hover:text-white hover:border-slate-600 transition-all cursor-pointer"
-          >
-            <Printer className="h-4 w-4 text-emerald-400" />
-            <span>Print Label</span>
-          </button>
+              {/* QR Label Modal Trigger */}
+              <button
+                type="button"
+                onClick={() => setShowLabelModal(true)}
+                className="inline-flex items-center gap-1.5 rounded-xl border border-slate-700 bg-slate-800/80 px-3 py-2 text-xs font-bold text-slate-200 hover:text-white hover:border-slate-600 transition-all cursor-pointer"
+              >
+                <Printer className="h-4 w-4 text-emerald-400" />
+                <span>Print Label</span>
+              </button>
+            </>
+          )}
         </div>
       </header>
 
