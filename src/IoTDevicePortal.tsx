@@ -2001,25 +2001,25 @@ export default function IoTDevicePortal() {
 
       {/* Top Header */}
       <header className="relative z-50 border-b border-cyan-500/30 bg-slate-950/90 backdrop-blur-md sticky top-0">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-20 flex items-center justify-between gap-3">
-          {/* Brand - Clean without overflowing badge */}
+        <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 h-16 sm:h-20 flex items-center justify-between gap-2">
+          {/* Brand - Flexible and responsive on mobile */}
           <div
-            className="flex min-w-0 items-center space-x-3 cursor-pointer shrink-0"
+            className="flex min-w-0 items-center space-x-2 sm:space-x-3 cursor-pointer shrink"
             onClick={() => setActiveTab(isAdmin ? 'fleet' : 'my-devices')}
           >
             <img
               src="/gkb-company-logo.png"
               alt="GKB Technologies logo"
-              className="h-10 w-10 sm:h-11 sm:w-11 shrink-0 rounded-xl object-contain bg-slate-900 border border-cyan-500/30 p-1 shadow-[0_0_15px_rgba(6,182,212,0.2)]"
+              className="h-8 w-8 sm:h-11 sm:w-11 shrink-0 rounded-xl object-contain bg-slate-900 border border-cyan-500/30 p-1 shadow-[0_0_15px_rgba(6,182,212,0.2)]"
             />
-            <div className="min-w-0">
-              <div className="flex items-center gap-2">
-                <h1 className="text-sm sm:text-base lg:text-lg font-black tracking-wider bg-gradient-to-r from-cyan-400 via-sky-300 to-purple-400 bg-clip-text text-transparent whitespace-nowrap">
+            <div className="min-w-0 truncate">
+              <div className="flex items-center gap-1.5 sm:gap-2">
+                <h1 className="text-xs sm:text-base lg:text-lg font-black tracking-wider bg-gradient-to-r from-cyan-400 via-sky-300 to-purple-400 bg-clip-text text-transparent truncate">
                   GKB TECHNOLOGIES
                 </h1>
                 {isAdmin ? (
-                  <span className="inline-flex items-center gap-1 rounded-full bg-purple-500/20 px-2 py-0.5 text-[10px] font-mono font-bold text-purple-300 border border-purple-500/40 shrink-0">
-                    <ShieldCheck className="h-3 w-3" /> ADMIN
+                  <span className="inline-flex items-center gap-1 rounded-full bg-purple-500/20 px-1.5 py-0.5 text-[9px] sm:text-[10px] font-mono font-bold text-purple-300 border border-purple-500/40 shrink-0">
+                    <ShieldCheck className="h-2.5 w-2.5 sm:h-3 sm:w-3" /> ADMIN
                   </span>
                 ) : (
                   <span className="hidden sm:inline-flex items-center rounded-full bg-cyan-500/20 px-2 py-0.5 text-[10px] font-bold text-cyan-300 border border-cyan-500/40 shrink-0">
@@ -2033,10 +2033,10 @@ export default function IoTDevicePortal() {
             </div>
           </div>
 
-          {/* Right Area: Current Active Screen Indicator + The Three Lines Menu Button (☰) */}
-          <div className="flex shrink-0 items-center gap-2 sm:gap-3">
-            {/* Active view indicator badge */}
-            <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-slate-900/90 border border-cyan-500/30 text-xs font-mono font-bold text-cyan-300 shadow-[0_0_12px_rgba(6,182,212,0.15)]">
+          {/* Right Area: Current Active Screen Indicator (on tablet/desktop) + The Three Lines Menu Button (☰) */}
+          <div className="flex shrink-0 items-center gap-2">
+            {/* Active view indicator badge - Shown on md+ screens to preserve mobile header space */}
+            <div className="hidden md:flex items-center gap-2 px-3 py-1.5 rounded-xl bg-slate-900/90 border border-cyan-500/30 text-xs font-mono font-bold text-cyan-300 shadow-[0_0_12px_rgba(6,182,212,0.15)]">
               <span className="w-2 h-2 rounded-full bg-cyan-400 animate-pulse shrink-0"></span>
               <span className="truncate max-w-[120px] sm:max-w-[180px]">
                 {activeTab === 'fleet' && 'Fleet Hub'}
@@ -2050,13 +2050,13 @@ export default function IoTDevicePortal() {
               </span>
             </div>
 
-            {/* The Three Lines Menu Button (☰) */}
+            {/* The Three Lines Menu Button (☰) - Always visible and perfectly fitted on mobile */}
             <button
               type="button"
               onClick={() => setMobileMenuOpen(prev => !prev)}
               title={mobileMenuOpen ? 'Close Menu' : 'Open Navigation Menu (☰)'}
               aria-label={mobileMenuOpen ? 'Close Navigation Menu' : 'Open Navigation Menu'}
-              className="inline-flex items-center gap-2 px-3 sm:px-3.5 py-2 rounded-xl border border-cyan-500/40 bg-slate-900 text-cyan-300 hover:text-white hover:border-cyan-400 hover:bg-cyan-500/20 transition-all cursor-pointer shadow-[0_0_15px_rgba(6,182,212,0.2)]"
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 sm:px-3.5 sm:py-2 rounded-xl border border-cyan-500/40 bg-slate-900 text-cyan-300 hover:text-white hover:border-cyan-400 hover:bg-cyan-500/20 transition-all cursor-pointer shadow-[0_0_15px_rgba(6,182,212,0.2)] shrink-0"
             >
               {mobileMenuOpen ? (
                 <>
@@ -2073,9 +2073,132 @@ export default function IoTDevicePortal() {
           </div>
         </div>
 
+        {/* Mobile Fast-Switch Navigation Tabs (Always accessible on phones) */}
+        <nav aria-label="Mobile Navigation Tabs" className="flex md:hidden items-center gap-1.5 overflow-x-auto px-3 py-2 bg-slate-900/95 border-t border-slate-800/80 scrollbar-none">
+          {isAdmin ? (
+            <>
+              <button
+                type="button"
+                onClick={() => setActiveTab('fleet')}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap shrink-0 transition-all cursor-pointer ${
+                  activeTab === 'fleet'
+                    ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-400/60 shadow-[0_0_10px_rgba(6,182,212,0.25)]'
+                    : 'text-slate-400 hover:text-cyan-300 hover:bg-slate-800'
+                }`}
+              >
+                <Layers className="h-3.5 w-3.5" />
+                Fleet Hub
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setActiveTab('deploy');
+                  setDeployError('');
+                  setDeploySuccess('');
+                }}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap shrink-0 transition-all cursor-pointer ${
+                  activeTab === 'deploy'
+                    ? 'bg-purple-500/20 text-purple-300 border border-purple-400/60 shadow-[0_0_10px_rgba(168,85,247,0.25)]'
+                    : 'text-slate-400 hover:text-purple-300 hover:bg-slate-800'
+                }`}
+              >
+                <Key className="h-3.5 w-3.5" />
+                Deploy Keys
+              </button>
+              <button
+                type="button"
+                onClick={() => setActiveTab('customer-devices')}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap shrink-0 transition-all cursor-pointer ${
+                  activeTab === 'customer-devices'
+                    ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-400/60 shadow-[0_0_10px_rgba(6,182,212,0.25)]'
+                    : 'text-slate-400 hover:text-cyan-300 hover:bg-slate-800'
+                }`}
+              >
+                <Users className="h-3.5 w-3.5" />
+                Customers {allCustomerDevices.length > 0 && `(${allCustomerDevices.length})`}
+              </button>
+            </>
+          ) : (
+            <>
+              <button
+                type="button"
+                onClick={() => setActiveTab('my-devices')}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap shrink-0 transition-all cursor-pointer ${
+                  activeTab === 'my-devices'
+                    ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-400/60 shadow-[0_0_10px_rgba(6,182,212,0.25)]'
+                    : 'text-slate-400 hover:text-cyan-300 hover:bg-slate-800'
+                }`}
+              >
+                <Radio className="h-3.5 w-3.5" />
+                My Devices {linkedDevices.length > 0 && `(${linkedDevices.length})`}
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setActiveTab('add-device');
+                  setClientLinkError('');
+                  setClientLinkSuccess('');
+                }}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap shrink-0 transition-all cursor-pointer ${
+                  activeTab === 'add-device'
+                    ? 'bg-gradient-to-r from-cyan-500 to-purple-600 text-black font-black'
+                    : 'bg-cyan-500/10 text-cyan-300 border border-cyan-500/30'
+                }`}
+              >
+                <Plus className="h-3.5 w-3.5" />
+                Add Device
+              </button>
+            </>
+          )}
+
+          <button
+            type="button"
+            onClick={() => setActiveTab('dashboard')}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap shrink-0 transition-all cursor-pointer ${
+              activeTab === 'dashboard'
+                ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-400/60 shadow-[0_0_10px_rgba(6,182,212,0.25)]'
+                : 'text-slate-400 hover:text-cyan-300 hover:bg-slate-800'
+            }`}
+          >
+            <Cpu className="h-3.5 w-3.5" />
+            Active Device
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setActiveTab('support')}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap shrink-0 transition-all cursor-pointer ${
+              activeTab === 'support'
+                ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-400/60 shadow-[0_0_10px_rgba(6,182,212,0.25)]'
+                : 'text-slate-400 hover:text-cyan-300 hover:bg-slate-800'
+            }`}
+          >
+            <Wrench className="h-3.5 w-3.5" />
+            {isAdmin ? 'Support Desk' : 'Support'}
+            {isAdmin && complaints.filter(c => !c.solved).length > 0 && (
+              <span className="ml-0.5 px-1.5 py-0.2 bg-rose-500 text-white text-[9px] font-bold rounded-full">
+                {complaints.filter(c => !c.solved).length}
+              </span>
+            )}
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setActiveTab('contact')}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap shrink-0 transition-all cursor-pointer ${
+              activeTab === 'contact'
+                ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-400/60 shadow-[0_0_10px_rgba(6,182,212,0.25)]'
+                : 'text-slate-400 hover:text-cyan-300 hover:bg-slate-800'
+            }`}
+          >
+            <Phone className="h-3.5 w-3.5" />
+            Contact
+          </button>
+        </nav>
+
         {/* The Three Lines (☰) Dropdown Drawer */}
         {mobileMenuOpen && (
-          <div className="border-t border-cyan-500/20 bg-slate-950/98 backdrop-blur-2xl px-4 sm:px-6 lg:px-8 py-5 shadow-2xl animate-fadeIn space-y-5">
+          <div className="border-t border-cyan-500/20 bg-slate-950/98 backdrop-blur-2xl px-4 sm:px-6 lg:px-8 py-5 shadow-2xl animate-fadeIn space-y-5 max-h-[85vh] overflow-y-auto">
             <div className="max-w-7xl mx-auto space-y-5">
               {/* Profile & Controls Bar */}
               <div className="flex flex-wrap items-center justify-between gap-3 pb-4 border-b border-slate-800/80">
